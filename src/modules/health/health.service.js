@@ -1,8 +1,10 @@
 const db = require('../../config/database'); // import database connection utilities
+const auditLogsService = require("../audit-logs/auditLogs.service");
 
 async function getStatus() {
 
   const dbStatus = await getDatabaseStatus(); // verify database connection statys
+  await registerHealthCheckAuditLog(dbStatus);
 
   return {
     status: 'ok',
@@ -28,6 +30,22 @@ async function getDatabaseStatus() { // check-database-connection
     }
   }
 }
+
+async function registerHealthCheckAuditLog(dbStatus) {
+  try {
+    await auditLogsService.register({
+      action: "HEALTH_CHECK_EXECUTED",
+      entity: "health",
+      entityId: "health-endpoint",
+      metadata: {
+        databaseStatus: dbStatus.status,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to register health check audit log:", error);
+  }
+}
+
 
 module.exports = {
   getStatus,
