@@ -1,0 +1,36 @@
+services:
+  api:
+    build: .
+    container_name: govflow_api
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      NODE_ENV: development
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: govflow_user
+      DB_PASSWORD: govflow_password
+      DB_NAME: govflow_db
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:16
+    container_name: govflow_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: govflow_user
+      POSTGRES_PASSWORD: govflow_password
+      POSTGRES_DB: govflow_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - govflow_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  govflow_postgres_data:
