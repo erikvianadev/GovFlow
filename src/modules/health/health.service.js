@@ -1,8 +1,10 @@
 const db = require('../../config/database'); // import database connection utilities
+const auditLogsService = require("../audit-logs/auditLogs.service");
 
 async function getStatus() {
 
   const dbStatus = await getDatabaseStatus(); // verify database connection statys
+  await registerHealthCheckAuditLog(dbStatus);
 
   return {
     status: 'ok',
