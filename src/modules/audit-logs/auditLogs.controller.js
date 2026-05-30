@@ -9,6 +9,10 @@ const list = asyncHandler(async (req, res) => {
   const result = await auditLogsService.listAuditLogs({
     page: req.query.page,
     limit: req.query.limit,
+    action: req.query.action,
+    entity: req.query.entity,
+    startDate: req.query.startDate,
+    endDate: req.query.endDate,
   });
 
   return paginatedResponse(res, {

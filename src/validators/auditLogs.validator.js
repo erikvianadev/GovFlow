@@ -10,6 +10,18 @@ function validateCreateAuditLog(payload) {
   return errors;
 }
 
+function validateListAuditLogsFilters(filters) {
+  const errors = [];
+
+  validateOptionalString(filters.action, "action", "Action", errors, 100);
+  validateOptionalString(filters.entity, "entity", "Entity", errors, 100);
+  validateOptionalDate(filters.startDate, "startDate", "Start date", errors);
+  validateOptionalDate(filters.endDate, "endDate", "End date", errors);
+  validateDateRange(filters.startDate, filters.endDate, errors);
+
+  return errors;
+}
+
 function validateAction(action, errors) {
   if (action === undefined || action === null) {
     errors.push({
@@ -123,6 +135,74 @@ function validateMetadata(metadata, errors) {
   }
 }
 
+function validateOptionalString(value, field, label, errors, maxLength) {
+  if (value === undefined || value === null || value === "") {
+    return;
+  }
+
+  if (typeof value !== "string") {
+    errors.push({
+      field,
+      message: `${label} must be a string`,
+    });
+    return;
+  }
+
+  if (value.trim().length === 0) {
+    errors.push({
+      field,
+      message: `${label} cannot be empty`,
+    });
+    return;
+  }
+
+  if (value.length > maxLength) {
+    errors.push({
+      field,
+      message: `${label} must be at most ${maxLength} characters`,
+    });
+  }
+}
+
+function validateOptionalDate(value, field, label, errors) {
+  if (value === undefined || value === null || value === "") {
+    return;
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    errors.push({
+      field,
+      message: `${label} must be a valid date`,
+    });
+  }
+}
+
+function validateDateRange(startDate, endDate, errors) {
+  if (!startDate || !endDate) {
+    return;
+  }
+
+  const parsedStartDate = new Date(startDate);
+  const parsedEndDate = new Date(endDate);
+
+  if (
+    Number.isNaN(parsedStartDate.getTime()) ||
+    Number.isNaN(parsedEndDate.getTime())
+  ) {
+    return;
+  }
+
+  if (parsedStartDate > parsedEndDate) {
+    errors.push({
+      field: "dateRange",
+      message: "Start date must be before or equal to end date",
+    });
+  }
+}
+
 module.exports = {
   validateCreateAuditLog,
+  validateListAuditLogsFilters,
 };
