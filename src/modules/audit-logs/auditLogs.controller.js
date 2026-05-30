@@ -1,5 +1,9 @@
 const auditLogsService = require("./auditLogs.service");
 const asyncHandler = require("../../utils/asyncHandler");
+const {
+  createdResponse,
+  paginatedResponse,
+} = require("../../utils/apiResponse");
 
 const list = asyncHandler(async (req, res) => {
   const result = await auditLogsService.listAuditLogs({
@@ -7,7 +11,11 @@ const list = asyncHandler(async (req, res) => {
     limit: req.query.limit,
   });
 
-  return res.status(200).json(result);
+  return paginatedResponse(res, {
+    message: "Audit logs retrieved successfully",
+    data: result.items,
+    pagination: result.pagination,
+  });
 });
 
 const create = asyncHandler(async (req, res) => {
@@ -19,8 +27,11 @@ const create = asyncHandler(async (req, res) => {
     metadata: req.body.metadata,
   });
 
-  return res.status(200).json(auditLog)
-})
+  return createdResponse(res, {
+    message: "Audit log created successfully",
+    data: auditLog,
+  });
+});
 
 module.exports = {
   list,
