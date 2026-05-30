@@ -10,6 +10,19 @@ const list = asyncHandler(async (req, res) => {
   return res.status(200).json(result);
 });
 
+const create = asyncHandler(async (req, res) => {
+  const auditLog = await auditLogsService.register({
+    action: req.body.action,
+    entity: req.body.entity,
+    entityId: req.body.entityId,
+    actorId: req.body.actorId,
+    metadata: req.body.metadata,
+  });
+
+  return res.status(200).json(auditLog)
+})
+
 module.exports = {
   list,
+  create,
 };

@@ -29,6 +29,22 @@ async function getDatabaseStatus() { // check-database-connection
   }
 }
 
+async function registerHealthCheckAuditLog(dbStatus) {
+  try {
+    await auditLogsService.register({
+      action: "HEALTH_CHECK_EXECUTED",
+      entity: "health",
+      entityId: "health-endpoint",
+      metadata: {
+        databaseStatus: dbStatus.status,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to register health check audit log:", error);
+  }
+}
+
+
 module.exports = {
   getStatus,
 }

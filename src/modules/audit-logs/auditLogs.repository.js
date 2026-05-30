@@ -33,7 +33,35 @@ async function countAll() {
   return result.rows[0].total;
 }
 
+async function create({action, entity, entityId = null, actorId = null, metadata = null}) {
+  const result = await database.query(
+    `
+    INSERT INTO audit_logs (
+        action,
+        entity,
+        entity_id,
+        actor_id,
+        metadata
+      )
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING
+        id,
+        action,
+        entity,
+        entity_id,
+        actor_id,
+        metadata,
+        created_at
+    `,
+    [action, entity, entityId, actorId, metadata]
+  );
+
+  return result.rows[0];
+}
+
+
 module.exports = {
   findAll,
   countAll,
+  create,
 }
