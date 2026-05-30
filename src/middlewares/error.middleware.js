@@ -23,6 +23,7 @@ function errorMiddleware(error, req, res, next) {
   return errorResponse(res, {
     statusCode,
     message,
+    errors: error.errors,
     details,
   });
 }

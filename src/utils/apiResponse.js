@@ -1,21 +1,39 @@
-function successResponse(res, { message, data } = {}) {
-  return res.status(200).json({
+function successResponse(
+  res,
+  {
+    message = "Request completed successfully",
+    data = null,
+    statusCode = 200,
+  } = {}
+) {
+  return res.status(statusCode).json({
     success: true,
     message,
     data,
   });
 }
 
-function createdResponse(res, { message, data } = {}) {
-  return res.status(201).json({
-    success: true,
+function createdResponse(
+  res,
+  { message = "Resource created successfully", data = null } = {}
+) {
+  return successResponse(res, {
     message,
     data,
+    statusCode: 201,
   });
 }
 
-function paginatedResponse(res, { message, data, pagination } = {}) {
-  return res.status(200).json({
+function paginatedResponse(
+  res,
+  {
+    message = "Resources retrieved successfully",
+    data = [],
+    pagination,
+    statusCode = 200,
+  } = {}
+) {
+  return res.status(statusCode).json({
     success: true,
     message,
     data,
@@ -23,17 +41,29 @@ function paginatedResponse(res, { message, data, pagination } = {}) {
   });
 }
 
-function errorResponse(res, { statusCode = 500, message, details } = {}) {
-  const body = {
+function errorResponse(
+  res,
+  {
+    message = "Internal server error",
+    statusCode = 500,
+    errors = null,
+    details,
+  } = {}
+) {
+  const response = {
     success: false,
     message,
   };
 
-  if (details !== undefined) {
-    body.details = details;
+  if (errors) {
+    response.errors = errors;
   }
 
-  return res.status(statusCode).json(body);
+  if (details) {
+    response.details = details;
+  }
+
+  return res.status(statusCode).json(response);
 }
 
 module.exports = {
