@@ -1,6 +1,6 @@
 const { Router } = require("express");
 
-const auditLogsController = require("./auditLogs.controller");
+const departmentsController = require("./departments.controller");
 const authMiddleware = require("../../middlewares/auth.middleware");
 const roleMiddleware = require("../../middlewares/role.middleware");
 
@@ -10,13 +10,19 @@ router.get(
   "/",
   authMiddleware,
   roleMiddleware(["ADMIN", "MANAGER"]),
-  auditLogsController.list
+  departmentsController.list
+);
+router.get(
+  "/:id",
+  authMiddleware,
+  roleMiddleware(["ADMIN", "MANAGER"]),
+  departmentsController.getById
 );
 router.post(
   "/",
   authMiddleware,
   roleMiddleware(["ADMIN"]),
-  auditLogsController.create
+  departmentsController.create
 );
 
 module.exports = router;

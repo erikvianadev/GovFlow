@@ -1,22 +1,18 @@
 const { Router } = require("express");
 
-const auditLogsController = require("./auditLogs.controller");
+const authController = require("./auth.controller");
 const authMiddleware = require("../../middlewares/auth.middleware");
 const roleMiddleware = require("../../middlewares/role.middleware");
 
 const router = Router();
 
+router.post("/login", authController.login);
+router.get("/me", authMiddleware, authController.me);
 router.get(
-  "/",
-  authMiddleware,
-  roleMiddleware(["ADMIN", "MANAGER"]),
-  auditLogsController.list
-);
-router.post(
-  "/",
+  "/admin-check",
   authMiddleware,
   roleMiddleware(["ADMIN"]),
-  auditLogsController.create
+  authController.adminCheck
 );
 
 module.exports = router;

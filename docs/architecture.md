@@ -2,11 +2,12 @@
 
 ## Current Architecture
 
-The backend currently follows a layered architecture:
+The backend follows a layered architecture:
 
 ```txt
 HTTP Request
   -> Route
+  -> Middleware
   -> Controller
   -> Service
   -> Repository
@@ -17,15 +18,7 @@ HTTP Request
 
 ### Routes
 
-Routes define endpoint paths and connect them to controllers.
-
-Current routes:
-
-```txt
-GET /health
-GET /audit-logs
-POST /audit-logs
-```
+Routes define endpoint paths, connect controllers, and declare access policies.
 
 ### Controllers
 
@@ -42,10 +35,11 @@ Controllers should not contain SQL or complex application rules.
 Services contain application rules:
 
 - Validate input.
-- Normalize filters.
+- Normalize data and filters.
 - Limit pagination.
 - Coordinate repositories.
-- Register audit logs.
+- Hash and compare passwords.
+- Generate access tokens.
 
 ### Repositories
 
@@ -63,37 +57,143 @@ Middlewares handle cross-cutting concerns:
 - CORS
 - JSON parsing
 - Request logging
+- JWT authentication
+- Role-based authorization
 - 404 not found responses
 - Global error handling
 
 ## Current Modules
 
+```txt
+src/modules/
+  audit-logs/
+  auth/
+  departments/
+  health/
+  users/
+```
+
 ### Health Module
 
 Checks API and database status and records each health check as an audit log.
-
-```txt
-src/modules/health/
-  health.controller.js
-  health.routes.js
-  health.service.js
-```
 
 ### Audit Logs Module
 
 Lists, filters, and creates audit logs.
 
+### Departments Module
+
+Lists, filters, retrieves, and creates departments.
+
+### Users Module
+
+Lists, filters, retrieves, and creates users. User creation hashes passwords
+before persistence.
+
+### Auth Module
+
+Authenticates users, issues access tokens, returns the authenticated user, and
+exposes an ADMIN-only route used to validate authorization behavior.
+
+## Authentication Architecture
+
+GovFlow uses JWT-based authentication.
+
+Login flow:
+
 ```txt
-src/modules/audit-logs/
-  auditLogs.controller.js
-  auditLogs.repository.js
-  auditLogs.routes.js
-  auditLogs.service.js
+POST /auth/login
+  -> Validate payload
+  -> Find user by email
+  -> Check active status
+  -> Compare password with bcrypt
+  -> Generate JWT access token
+  -> Return safe user data and access token
 ```
+
+Protected route flow:
+
+```txt
+Request with Authorization header
+  -> authMiddleware
+  -> Validate Bearer token format
+  -> Verify JWT
+  -> Validate token subject
+  -> Find user by token subject
+  -> Check active status
+  -> Populate req.user
+  -> Route handler
+```
+
+## Authorization Architecture
+
+GovFlow currently uses simple role-based access control.
+
+Roles:
+
+```txt
+ADMIN
+MANAGER
+OPERATOR
+```
+
+Authorization flow:
+
+```txt
+Protected request
+  -> authMiddleware
+  -> req.user populated
+  -> roleMiddleware(["ALLOWED_ROLE"])
+  -> Check req.user.role
+  -> Allow or reject request
+```
+
+Current route access policy:
+
+| Resource | ADMIN | MANAGER | OPERATOR |
+| --- | ---: | ---: | ---: |
+| Users | yes | no | no |
+| Departments read | yes | yes | no |
+| Departments create | yes | no | no |
+| Audit logs read | yes | yes | no |
+| Audit logs create | yes | no | no |
 
 ## Database
 
 The current database is PostgreSQL.
+
+### departments
+
+Stores administrative departments.
+
+Important fields:
+
+```txt
+id
+name
+description
+is_active
+created_at
+updated_at
+```
+
+### users
+
+Stores users and their administrative role.
+
+Important fields:
+
+```txt
+id
+name
+email
+password_hash
+role
+department_id
+is_active
+created_at
+updated_at
+```
 
 ### audit_logs
 
@@ -111,30 +211,57 @@ metadata
 created_at
 ```
 
-Indexes:
-
-```txt
-created_at
-entity
-action
-```
-
 ### schema_migrations
 
 Stores executed migration filenames. This prevents running the same migration
 multiple times.
 
-## Error Handling
+## Security Decisions
 
-The project uses a custom `AppError` class for operational errors such as:
+### Password Hashing
+
+Passwords are never stored in plain text.
+
+User creation flow:
 
 ```txt
-Validation failed
-Route not found
+password
+  -> bcrypt.hash()
+  -> password_hash stored in database
 ```
 
-Unexpected errors are handled by the global error middleware. In development,
-error details are returned. In production, internal details are hidden.
+The API never returns `password` or `password_hash`.
+
+### JWT
+
+JWT access tokens include:
+
+```txt
+sub
+email
+role
+```
+
+`sub` represents the authenticated user ID. Tokens have configurable expiration
+through `JWT_EXPIRES_IN`.
+
+### User Status Validation
+
+Even when a JWT is cryptographically valid, protected routes fetch the user
+from the database and verify `is_active`.
+
+This allows the system to block inactive users even if they still have a valid
+token.
+
+### Error Handling
+
+Invalid email and invalid password return the same message:
+
+```txt
+Invalid email or password
+```
+
+This avoids leaking whether an email exists in the system.
 
 ## API Response Standard
 
@@ -193,6 +320,23 @@ Reasons:
 
 A schema validation library such as Zod may be introduced later.
 
+### Database Lookup on Each Protected Request
+
+Protected routes fetch the authenticated user from the database on every
+request.
+
+Reasons:
+
+- Simple implementation.
+- Ensures inactive users are blocked immediately.
+- Avoids trusting stale token data.
+
+Future evolution:
+
+- Short-lived user cache.
+- Token versioning.
+- Redis-backed session or revocation strategy.
+
 ### Console Logging
 
 The project currently uses `console.log` for request logging.
@@ -211,9 +355,8 @@ Planned improvements:
 ```txt
 TypeScript
 Prisma
-Authentication
-Authorization
 Jira integration
+Workflow domain modeling
 Redis
 BullMQ
 Background jobs
