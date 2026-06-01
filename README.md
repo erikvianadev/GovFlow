@@ -8,7 +8,7 @@ database modeling, observability, and practical backend engineering.
 
 ## Current Status
 
-Sprint 1 - Backend Foundation completed.
+Sprint 2 - Domain Modeling and Authentication Foundation completed.
 
 The current backend includes:
 
@@ -21,10 +21,18 @@ The current backend includes:
 - Global error handling
 - Standardized API responses
 - Audit logs module
+- Departments module
+- Users module
 - Pagination and filters
 - Input validation
 - Request logging middleware
 - SQL migrations and seeds
+- Password hashing with bcrypt
+- Login endpoint
+- JWT access token generation
+- Authentication middleware
+- Role-based authorization middleware
+- Protected routes
 
 ## Tech Stack
 
@@ -34,6 +42,8 @@ The current backend includes:
 - Docker
 - Docker Compose
 - JavaScript
+- bcrypt
+- JSON Web Token
 
 ## Project Structure
 
@@ -74,11 +84,15 @@ DB_PORT=5432
 DB_USER=govflow_user
 DB_PASSWORD=govflow_password
 DB_NAME=govflow_db
+
+JWT_SECRET=your_jwt_secret
+JWT_EXPIRES_IN=1h
 ```
 
-When running with Docker Compose, the API container uses `DB_HOST=postgres`.
+`JWT_SECRET` must be a long, private value in production. When running with
+Docker Compose, the API container uses `DB_HOST=postgres`.
 
-## Running with Docker
+## Running With Docker
 
 Build and start the containers:
 
@@ -113,8 +127,84 @@ Run seeds:
 docker exec -it govflow_api npm run db:seed
 ```
 
-Migrations are tracked in the `schema_migrations` table. The seed script is
-idempotent for the initial records and can be executed again safely.
+Migrations are tracked in the `schema_migrations` table. Seed scripts are
+idempotent and can be executed again safely.
+
+## Roles
+
+GovFlow currently supports three roles:
+
+| Role | Description |
+| --- | --- |
+| ADMIN | Full administrative access |
+| MANAGER | Management-level access to selected administrative resources |
+| OPERATOR | Basic operational user with restricted access |
+
+## Authentication
+
+The API uses JWT-based authentication.
+
+Login:
+
+```http
+POST /auth/login
+```
+
+Example body:
+
+```json
+{
+  "email": "manager@govflow.local",
+  "password": "Manager123"
+}
+```
+
+Example response:
+
+```json
+{
+  "success": true,
+  "message": "Login successful",
+  "data": {
+    "user": {
+      "id": "uuid",
+      "name": "Manager User",
+      "email": "manager@govflow.local",
+      "role": "MANAGER",
+      "department_id": "uuid",
+      "is_active": true,
+      "created_at": "2026-06-01T00:00:00.000Z",
+      "updated_at": "2026-06-01T00:00:00.000Z"
+    },
+    "accessToken": "jwt-token"
+  }
+}
+```
+
+Use the token in protected routes:
+
+```http
+Authorization: Bearer <accessToken>
+```
+
+## Authorization
+
+Protected routes use role-based access control.
+
+| Route | Access |
+| --- | --- |
+| `GET /health` | Public |
+| `POST /auth/login` | Public |
+| `GET /auth/me` | Authenticated users |
+| `GET /auth/admin-check` | ADMIN |
+| `GET /users` | ADMIN |
+| `GET /users/:id` | ADMIN |
+| `POST /users` | ADMIN |
+| `GET /departments` | ADMIN, MANAGER |
+| `GET /departments/:id` | ADMIN, MANAGER |
+| `POST /departments` | ADMIN |
+| `GET /audit-logs` | ADMIN, MANAGER |
+| `POST /audit-logs` | ADMIN |
 
 ## API Health Check
 
@@ -124,62 +214,10 @@ GET /health
 
 Each health check also records a `HEALTH_CHECK_EXECUTED` audit log.
 
-Example response:
+## API Documentation
 
-```json
-{
-  "success": true,
-  "message": "Health status retrieved successfully",
-  "data": {
-    "status": "ok",
-    "service": "GovFlow API",
-    "timestamp": "2026-05-30T00:00:00.000Z",
-    "dependencies": {
-      "database": {
-        "status": "ok"
-      }
-    }
-  }
-}
-```
-
-## Audit Logs
-
-List audit logs:
-
-```http
-GET /audit-logs
-```
-
-With pagination and filters:
-
-```http
-GET /audit-logs?page=1&limit=20
-GET /audit-logs?action=HEALTH_CHECK_EXECUTED
-GET /audit-logs?entity=health
-GET /audit-logs?startDate=2026-05-01&endDate=2026-05-30
-```
-
-Create an audit log:
-
-```http
-POST /audit-logs
-```
-
-Example body:
-
-```json
-{
-  "action": "MANUAL_AUDIT_TEST",
-  "entity": "audit_log",
-  "entityId": "manual-test",
-  "metadata": {
-    "source": "postman"
-  }
-}
-```
-
-See [`docs/api.md`](docs/api.md) for the complete endpoint documentation.
+See [`docs/api.md`](docs/api.md) for endpoint bodies, filters, responses, and
+validation rules.
 
 ## API Response Pattern
 
@@ -227,12 +265,12 @@ The project currently follows a layered architecture:
 Route -> Controller -> Service -> Repository -> Database
 ```
 
-- Routes define HTTP endpoints.
+- Routes define HTTP endpoints and access policies.
 - Controllers handle request and response data.
 - Services contain application rules.
 - Repositories access the database.
 - Validators protect input data.
-- Middlewares handle cross-cutting concerns.
+- Middlewares handle cross-cutting concerns, authentication, and authorization.
 
 ## Useful Commands
 
@@ -248,12 +286,13 @@ docker exec -it govflow_api npm run db:seed
 
 ## Next Steps
 
-Sprint 2 will focus on domain modeling and authentication foundations.
+Sprint 3 will focus on Jira integration foundations and workflow domain
+modeling.
 
-Planned modules and capabilities:
+Planned next modules:
 
-- Users
-- Organizations or departments
-- Authentication base
+- Jira integration configuration
 - Jira project mapping
 - Workflow domain modeling
+- Initial automation execution model
+- Improved audit trail for authentication and administrative actions
