@@ -1,6 +1,7 @@
 const AppError = require("../../errors/AppError");
 const usersRepository = require("../users/users.repository");
 const { comparePassword } = require("../../utils/password");
+const { signAccessToken } = require("../../utils/jwt");
 const { validateLogin } = require("../../validators/auth.validator");
 
 async function login({ email, password }) {
@@ -30,17 +31,22 @@ async function login({ email, password }) {
     throw new AppError("Invalid email or password", 401);
   }
 
+  const safeUser = {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    department_id: user.department_id,
+    is_active: user.is_active,
+    created_at: user.created_at,
+    updated_at: user.updated_at,
+  };
+
+  const accessToken = signAccessToken(safeUser);
+
   return {
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      department_id: user.department_id,
-      is_active: user.is_active,
-      created_at: user.created_at,
-      updated_at: user.updated_at,
-    },
+    user: safeUser,
+    accessToken,
   };
 }
 
