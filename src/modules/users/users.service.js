@@ -1,6 +1,7 @@
 const AppError = require("../../errors/AppError");
 const usersRepository = require("./users.repository");
 const departmentsRepository = require("../departments/departments.repository");
+const { hashPassword } = require("../../utils/password");
 const {
   validateCreateUser,
   validateListUsersFilters,
@@ -78,14 +79,14 @@ async function getUserById(id) {
 async function createUser({
   name,
   email,
-  passwordHash,
+  password,
   role,
   departmentId = null,
 }) {
   const validationErrors = validateCreateUser({
     name,
     email,
-    passwordHash,
+    password,
     role,
     departmentId,
   });
@@ -111,11 +112,13 @@ async function createUser({
     }
   }
 
+  const passwordHash = await hashPassword(password);
+
   try {
     return await usersRepository.create({
       name: normalizedName,
       email: normalizedEmail,
-      passwordHash: passwordHash.trim(),
+      passwordHash,
       role,
       departmentId: departmentId || null,
     });

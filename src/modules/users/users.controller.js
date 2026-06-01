@@ -35,7 +35,7 @@ const create = asyncHandler(async (req, res) => {
   const user = await usersService.createUser({
     name: req.body.name,
     email: req.body.email,
-    passwordHash: req.body.passwordHash,
+    password: req.body.password,
     role: req.body.role,
     departmentId: req.body.departmentId,
   });

@@ -5,7 +5,7 @@ function validateCreateUser(payload) {
 
   validateName(payload.name, errors);
   validateEmail(payload.email, errors);
-  validatePasswordHash(payload.passwordHash, errors);
+  validatePassword(payload.password, errors);
   validateRole(payload.role, errors);
   validateOptionalUuid(payload.departmentId, "departmentId", "Department ID", errors);
 
@@ -113,35 +113,46 @@ function validateEmail(email, errors) {
   }
 }
 
-function validatePasswordHash(passwordHash, errors) {
-  if (passwordHash === undefined || passwordHash === null) {
+function validatePassword(password, errors) {
+  if (password === undefined || password === null) {
     errors.push({
-      field: "passwordHash",
-      message: "Password hash is required",
+      field: "password",
+      message: "Password is required",
     });
     return;
   }
 
-  if (typeof passwordHash !== "string") {
+  if (typeof password !== "string") {
     errors.push({
-      field: "passwordHash",
-      message: "Password hash must be a string",
+      field: "password",
+      message: "Password must be a string",
     });
     return;
   }
 
-  if (passwordHash.trim().length === 0) {
+  if (password.length < 8) {
     errors.push({
-      field: "passwordHash",
-      message: "Password hash cannot be empty",
+      field: "password",
+      message: "Password must be at least 8 characters",
     });
     return;
   }
 
-  if (passwordHash.length > 255) {
+  if (password.length > 72) {
     errors.push({
-      field: "passwordHash",
-      message: "Password hash must be at most 255 characters",
+      field: "password",
+      message: "Password must be at most 72 characters",
+    });
+    return;
+  }
+
+  const hasLetter = /[A-Za-z]/.test(password);
+  const hasNumber = /\d/.test(password);
+
+  if (!hasLetter || !hasNumber) {
+    errors.push({
+      field: "password",
+      message: "Password must contain at least one letter and one number",
     });
   }
 }
