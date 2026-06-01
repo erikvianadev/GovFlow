@@ -23,7 +23,17 @@ const me = asyncHandler(async (req, res) => {
   });
 });
 
+const adminCheck = asyncHandler(async (req, res) => {
+  return successResponse(res, {
+    message: "Admin access granted",
+    data: {
+      user: req.user,
+    },
+  });
+});
+
 module.exports = {
   login,
   me,
+  adminCheck,
 };
