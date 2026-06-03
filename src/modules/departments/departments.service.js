@@ -1,5 +1,6 @@
 const AppError = require("../../errors/AppError");
 const departmentsRepository = require("./departments.repository");
+const { safeRegisterAuditLog } = require("../../utils/safeAuditLog");
 const {
   validateCreateDepartment,
   validateListDepartmentsFilters,
@@ -83,10 +84,22 @@ async function createDepartment({ name, description = null }) {
   }
 
   try {
-    return await departmentsRepository.create({
+    const createdDepartment = await departmentsRepository.create({
       name: normalizedName,
       description: normalizedDescription,
     });
+
+    await safeRegisterAuditLog({
+      action: "DEPARTMENT_CREATED",
+      entity: "department",
+      entityId: createdDepartment.id,
+      actorId: null,
+      metadata: {
+        name: createdDepartment.name,
+      },
+    });
+
+    return createdDepartment;
   } catch (error) {
     if (error.code === "23505") {
       throw new AppError("Department with this name already exists", 409);

@@ -2,6 +2,7 @@ const AppError = require("../../errors/AppError");
 const usersRepository = require("./users.repository");
 const departmentsRepository = require("../departments/departments.repository");
 const { hashPassword } = require("../../utils/password");
+const { safeRegisterAuditLog } = require("../../utils/safeAuditLog");
 const {
   validateCreateUser,
   validateListUsersFilters,
@@ -115,13 +116,27 @@ async function createUser({
   const passwordHash = await hashPassword(password);
 
   try {
-    return await usersRepository.create({
+    const createdUser = await usersRepository.create({
       name: normalizedName,
       email: normalizedEmail,
       passwordHash,
       role,
       departmentId: departmentId || null,
     });
+
+    await safeRegisterAuditLog({
+      action: "USER_CREATED",
+      entity: "user",
+      entityId: createdUser.id,
+      actorId: null,
+      metadata: {
+        email: createdUser.email,
+        role: createdUser.role,
+        departmentId: createdUser.department_id,
+      },
+    });
+
+    return createdUser;
   } catch (error) {
     if (error.code === "23505") {
       throw new AppError("User with this email already exists", 409);
