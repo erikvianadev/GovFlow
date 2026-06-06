@@ -1,24 +1,23 @@
 const AppError = require("../../errors/AppError");
-const usersRepository = require("./users.repository");
+const workflowsRepository = require("./workflows.repository");
 const departmentsRepository = require("../departments/departments.repository");
-const { hashPassword } = require("../../utils/password");
 const { safeRegisterAuditLog } = require("../../utils/safeAuditLog");
 const {
-  validateCreateUser,
-  validateListUsersFilters,
-  validateUserId,
-} = require("../../validators/users.validator");
+  validateCreateWorkflow,
+  validateListWorkflowsFilters,
+  validateWorkflowId,
+} = require("../../validators/workflows.validator");
 
-async function listUsers({
+async function listWorkflows({
   page = 1,
   limit = 20,
-  role,
   departmentId,
+  createdBy,
   isActive,
 }) {
-  const validationErrors = validateListUsersFilters({
-    role,
+  const validationErrors = validateListWorkflowsFilters({
     departmentId,
+    createdBy,
     isActive,
   });
 
@@ -31,8 +30,8 @@ async function listUsers({
   const offset = (safePage - 1) * safeLimit;
 
   const normalizedFilters = {
-    role: role || null,
     departmentId: departmentId || null,
+    createdBy: createdBy || null,
     isActive:
       isActive === undefined || isActive === null || isActive === ""
         ? null
@@ -40,12 +39,12 @@ async function listUsers({
   };
 
   const [items, total] = await Promise.all([
-    usersRepository.findAll({
+    workflowsRepository.findAll({
       limit: safeLimit,
       offset,
       filters: normalizedFilters,
     }),
-    usersRepository.countAll({
+    workflowsRepository.countAll({
       filters: normalizedFilters,
     }),
   ]);
@@ -61,34 +60,31 @@ async function listUsers({
   };
 }
 
-async function getUserById(id) {
-  const validationErrors = validateUserId(id);
+async function getWorkflowById(id) {
+  const validationErrors = validateWorkflowId(id);
 
   if (validationErrors.length > 0) {
-    throw new AppError("Invalid user ID", 400, validationErrors);
+    throw new AppError("Invalid workflow ID", 400, validationErrors);
   }
 
-  const user = await usersRepository.findById(id);
+  const workflow = await workflowsRepository.findById(id);
 
-  if (!user) {
-    throw new AppError("User not found", 404);
+  if (!workflow) {
+    throw new AppError("Workflow not found", 404);
   }
 
-  return user;
+  return workflow;
 }
 
-async function createUser({
+async function createWorkflow({
   name,
-  email,
-  password,
-  role,
+  description = null,
   departmentId = null,
+  createdBy,
 }) {
-  const validationErrors = validateCreateUser({
+  const validationErrors = validateCreateWorkflow({
     name,
-    email,
-    password,
-    role,
+    description,
     departmentId,
   });
 
@@ -96,14 +92,13 @@ async function createUser({
     throw new AppError("Validation failed", 400, validationErrors);
   }
 
-  const normalizedEmail = email.trim().toLowerCase();
-  const normalizedName = name.trim();
-
-  const existingUser = await usersRepository.findByEmail(normalizedEmail);
-
-  if (existingUser) {
-    throw new AppError("User with this email already exists", 409);
+  if (!createdBy) {
+    throw new AppError("Authenticated user is required", 401);
   }
+
+  const normalizedName = name.trim();
+  const normalizedDescription =
+    description === undefined || description === null ? null : description.trim();
 
   if (departmentId) {
     const department = await departmentsRepository.findById(departmentId);
@@ -113,35 +108,27 @@ async function createUser({
     }
   }
 
-  const passwordHash = await hashPassword(password);
-
   try {
-    const createdUser = await usersRepository.create({
+    const createdWorkflow = await workflowsRepository.create({
       name: normalizedName,
-      email: normalizedEmail,
-      passwordHash,
-      role,
+      description: normalizedDescription,
       departmentId: departmentId || null,
+      createdBy,
     });
 
     await safeRegisterAuditLog({
-      action: "USER_CREATED",
-      entity: "user",
-      entityId: createdUser.id,
-      actorId: null,
+      action: "WORKFLOW_CREATED",
+      entity: "workflow",
+      entityId: createdWorkflow.id,
+      actorId: createdBy,
       metadata: {
-        email: createdUser.email,
-        role: createdUser.role,
-        departmentId: createdUser.department_id,
+        name: createdWorkflow.name,
+        departmentId: createdWorkflow.department_id,
       },
     });
 
-    return createdUser;
+    return createdWorkflow;
   } catch (error) {
-    if (error.code === "23505") {
-      throw new AppError("User with this email already exists", 409);
-    }
-
     if (error.code === "23503") {
       throw new AppError("Department not found", 404);
     }
@@ -151,7 +138,7 @@ async function createUser({
 }
 
 module.exports = {
-  listUsers,
-  getUserById,
-  createUser,
+  listWorkflows,
+  getWorkflowById,
+  createWorkflow,
 };

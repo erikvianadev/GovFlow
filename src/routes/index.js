@@ -5,6 +5,8 @@ const auditLogsRoutes = require('../modules/audit-logs/auditLogs.routes');
 const departmentsRoutes = require('../modules/departments/departments.routes');
 const usersRoutes = require('../modules/users/users.routes');
 const authRoutes = require("../modules/auth/auth.routes");
+const workflowsRoutes = require("../modules/workflows/workflows.routes");
+const workflowExecutionsGlobalRoutes = require("../modules/workflow-executions/workflowExecutions.global.routes");
 
 const router = Router();
 
@@ -13,5 +15,7 @@ router.use("/audit-logs", auditLogsRoutes);
 router.use("/departments", departmentsRoutes);
 router.use("/users", usersRoutes);
 router.use("/auth", authRoutes);
+router.use("/workflows", workflowsRoutes);
+router.use("/workflow-executions", workflowExecutionsGlobalRoutes);
 
 module.exports = router;

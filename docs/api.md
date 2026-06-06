@@ -66,28 +66,7 @@ Authorization: Bearer <accessToken>
 Checks API and database status. This public endpoint records a
 `HEALTH_CHECK_EXECUTED` audit log with the database status in its metadata.
 
-#### Access
-
-Public.
-
-#### Response
-
-```json
-{
-  "success": true,
-  "message": "Health status retrieved successfully",
-  "data": {
-    "status": "ok",
-    "service": "GovFlow API",
-    "timestamp": "2026-06-01T00:00:00.000Z",
-    "dependencies": {
-      "database": {
-        "status": "ok"
-      }
-    }
-  }
-}
-```
+Access: public.
 
 ## Authentication
 
@@ -95,11 +74,9 @@ Public.
 
 Authenticates a user and returns an access token.
 
-#### Access
+Access: public.
 
-Public.
-
-#### Body
+Body:
 
 ```json
 {
@@ -108,7 +85,7 @@ Public.
 }
 ```
 
-#### Response
+Response:
 
 ```json
 {
@@ -130,72 +107,22 @@ Public.
 }
 ```
 
-#### Errors
+Audit events:
 
-Invalid credentials return `401 Unauthorized`:
-
-```json
-{
-  "success": false,
-  "message": "Invalid email or password"
-}
-```
-
-Inactive users return `403 Forbidden`:
-
-```json
-{
-  "success": false,
-  "message": "User is inactive"
-}
-```
+- `LOGIN_SUCCESS`
+- `LOGIN_FAILED`
 
 ### GET /auth/me
 
 Returns the authenticated user.
 
-#### Access
-
-Authenticated users.
-
-#### Headers
-
-```http
-Authorization: Bearer <accessToken>
-```
-
-#### Response
-
-```json
-{
-  "success": true,
-  "message": "Authenticated user retrieved successfully",
-  "data": {
-    "user": {
-      "id": "uuid",
-      "name": "Manager User",
-      "email": "manager@govflow.local",
-      "role": "MANAGER",
-      "department_id": "uuid",
-      "is_active": true
-    }
-  }
-}
-```
+Access: authenticated users.
 
 ### GET /auth/admin-check
 
 Test route for ADMIN-only access.
 
-#### Access
-
-ADMIN only.
-
-#### Headers
-
-```http
-Authorization: Bearer <accessToken>
-```
+Access: ADMIN.
 
 ## Departments
 
@@ -203,11 +130,9 @@ Authorization: Bearer <accessToken>
 
 Lists departments.
 
-#### Access
+Access: ADMIN, MANAGER.
 
-ADMIN, MANAGER.
-
-#### Query Params
+Query params:
 
 | Param | Type | Required | Description |
 | --- | --- | ---: | --- |
@@ -219,19 +144,15 @@ ADMIN, MANAGER.
 
 Returns a department by ID.
 
-#### Access
-
-ADMIN, MANAGER.
+Access: ADMIN, MANAGER.
 
 ### POST /departments
 
 Creates a department.
 
-#### Access
+Access: ADMIN.
 
-ADMIN only.
-
-#### Body
+Body:
 
 ```json
 {
@@ -240,7 +161,9 @@ ADMIN only.
 }
 ```
 
-#### Validation Rules
+Audit event: `DEPARTMENT_CREATED`.
+
+Validation rules:
 
 | Field | Required | Rule |
 | --- | ---: | --- |
@@ -253,11 +176,9 @@ ADMIN only.
 
 Lists users.
 
-#### Access
+Access: ADMIN.
 
-ADMIN only.
-
-#### Query Params
+Query params:
 
 | Param | Type | Required | Description |
 | --- | --- | ---: | --- |
@@ -271,20 +192,16 @@ ADMIN only.
 
 Returns a user by ID.
 
-#### Access
-
-ADMIN only.
+Access: ADMIN.
 
 ### POST /users
 
 Creates a user. The API hashes `password` with bcrypt and never returns
 `password` or `password_hash`.
 
-#### Access
+Access: ADMIN.
 
-ADMIN only.
-
-#### Body
+Body:
 
 ```json
 {
@@ -296,7 +213,9 @@ ADMIN only.
 }
 ```
 
-#### Validation Rules
+Audit event: `USER_CREATED`.
+
+Validation rules:
 
 | Field | Required | Rule |
 | --- | ---: | --- |
@@ -312,11 +231,9 @@ ADMIN only.
 
 Lists audit logs ordered by `created_at DESC`.
 
-#### Access
+Access: ADMIN, MANAGER.
 
-ADMIN, MANAGER.
-
-#### Query Params
+Query params:
 
 | Param | Type | Required | Description |
 | --- | --- | ---: | --- |
@@ -327,19 +244,17 @@ ADMIN, MANAGER.
 | startDate | date | no | Include logs created at or after this date |
 | endDate | date | no | Include logs created at or before this date |
 
-`startDate` and `endDate` accept values parsed by JavaScript as dates. Use full
-ISO timestamps when the intended time boundary matters.
+Use full ISO timestamps for date filters when the intended time boundary
+matters.
 
 ### POST /audit-logs
 
-Creates an audit log manually. This endpoint is currently useful for testing
-and internal system events.
+Creates an audit log manually. This endpoint is useful for internal system
+events and testing.
 
-#### Access
+Access: ADMIN.
 
-ADMIN only.
-
-#### Body
+Body:
 
 ```json
 {
@@ -353,7 +268,7 @@ ADMIN only.
 }
 ```
 
-#### Validation Rules
+Validation rules:
 
 | Field | Required | Rule |
 | --- | ---: | --- |
@@ -362,3 +277,204 @@ ADMIN only.
 | entityId | no | string, max 100 characters |
 | actorId | no | string; must be a valid UUID for insert |
 | metadata | no | object, not array |
+
+## Workflows
+
+### GET /workflows
+
+Lists workflows ordered by `created_at DESC`.
+
+Access: ADMIN, MANAGER.
+
+Query params:
+
+| Param | Type | Required | Description |
+| --- | --- | ---: | --- |
+| page | number | no | Current page. Defaults to 1 |
+| limit | number | no | Items per page. Defaults to 20. Max 100 |
+| departmentId | UUID | no | Filter by department |
+| createdBy | UUID | no | Filter by creator |
+| isActive | boolean | no | Filter active or inactive workflows |
+
+### GET /workflows/:id
+
+Returns a workflow by ID.
+
+Access: ADMIN, MANAGER.
+
+### POST /workflows
+
+Creates a workflow.
+
+Access: ADMIN, MANAGER.
+
+Body:
+
+```json
+{
+  "name": "Fluxo de Aprovacao Tecnica",
+  "description": "Workflow para validar solicitacoes tecnicas.",
+  "departmentId": "uuid"
+}
+```
+
+Backend-defined fields:
+
+```txt
+created_by -> req.user.id
+is_active  -> true
+```
+
+Audit event: `WORKFLOW_CREATED`.
+
+Validation rules:
+
+| Field | Required | Rule |
+| --- | ---: | --- |
+| name | yes | string, not empty, max 150 characters |
+| description | no | string, max 1000 characters |
+| departmentId | no | valid UUID |
+
+## Workflow Steps
+
+### GET /workflows/:workflowId/steps
+
+Lists workflow steps ordered by `step_order ASC`.
+
+Access: ADMIN, MANAGER.
+
+Rules:
+
+- `workflowId` is required and must be a valid UUID.
+- The workflow must exist.
+
+### POST /workflows/:workflowId/steps
+
+Creates an ordered step for a workflow.
+
+Access: ADMIN, MANAGER.
+
+Body:
+
+```json
+{
+  "name": "Validacao manual",
+  "description": "Etapa de validacao pela equipe tecnica.",
+  "stepOrder": 1,
+  "actionType": "MANUAL",
+  "configuration": {
+    "instructions": "Revisar dados da solicitacao."
+  }
+}
+```
+
+Audit event: `WORKFLOW_STEP_CREATED`.
+
+Validation rules:
+
+| Field | Required | Rule |
+| --- | ---: | --- |
+| workflowId | yes | valid UUID from route |
+| name | yes | string, not empty, max 150 characters |
+| description | no | string, max 1000 characters |
+| stepOrder | yes | integer greater than 0; unique per workflow |
+| actionType | yes | `MANUAL`, `JIRA_TRANSITION`, `JIRA_COMMENT`, or `NOTIFICATION` |
+| configuration | no | object, not array |
+
+## Workflow Executions
+
+### POST /workflows/:workflowId/executions
+
+Creates a workflow execution with status `PENDING`.
+
+Access: ADMIN, MANAGER, OPERATOR.
+
+Body:
+
+```json
+{
+  "input": {
+    "requestId": "REQ-001",
+    "priority": "high",
+    "source": "manual"
+  }
+}
+```
+
+Backend-defined fields:
+
+```txt
+workflow_id  -> route param workflowId
+started_by   -> req.user.id
+status       -> PENDING
+result       -> null
+started_at   -> null
+completed_at -> null
+```
+
+Audit event: `WORKFLOW_EXECUTION_CREATED`.
+
+Validation rules:
+
+| Field | Required | Rule |
+| --- | ---: | --- |
+| workflowId | yes | valid UUID from route; workflow must exist and be active |
+| input | no | object, not array |
+
+Important behavior:
+
+- This endpoint does not process workflow steps.
+- It does not call Jira.
+- It does not send notifications.
+- It only records the execution contract for future processing.
+
+### GET /workflow-executions
+
+Lists workflow executions ordered by `created_at DESC`.
+
+Access: ADMIN, MANAGER.
+
+Query params:
+
+| Param | Type | Required | Description |
+| --- | --- | ---: | --- |
+| page | number | no | Current page. Defaults to 1 |
+| limit | number | no | Items per page. Defaults to 20. Max 100 |
+| workflowId | UUID | no | Filter by workflow |
+| startedBy | UUID | no | Filter by user that started the execution |
+| status | string | no | `PENDING`, `RUNNING`, `COMPLETED`, `FAILED`, or `CANCELED` |
+
+Example:
+
+```http
+GET /workflow-executions?status=PENDING
+Authorization: Bearer <accessToken>
+```
+
+### GET /workflow-executions/:id
+
+Returns a workflow execution by ID.
+
+Access: ADMIN, MANAGER.
+
+Validation rules:
+
+| Field | Required | Rule |
+| --- | ---: | --- |
+| id | yes | valid UUID |
+
+## RBAC Summary
+
+| Resource | ADMIN | MANAGER | OPERATOR |
+| --- | ---: | ---: | ---: |
+| Users | yes | no | no |
+| Departments read | yes | yes | no |
+| Departments create | yes | no | no |
+| Audit logs read | yes | yes | no |
+| Audit logs create | yes | no | no |
+| Workflows read | yes | yes | no |
+| Workflows create | yes | yes | no |
+| Workflow steps read | yes | yes | no |
+| Workflow steps create | yes | yes | no |
+| Workflow executions create | yes | yes | yes |
+| Workflow executions read | yes | yes | no |
