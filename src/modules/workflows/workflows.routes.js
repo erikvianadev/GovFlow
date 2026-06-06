@@ -2,6 +2,7 @@ const { Router } = require("express");
 
 const workflowsController = require("./workflows.controller");
 const workflowStepsRoutes = require("../workflow-steps/workflowSteps.routes");
+const workflowExecutionsRoutes = require("../workflow-executions/workflowExecutions.routes");
 const authMiddleware = require("../../middlewares/auth.middleware");
 const roleMiddleware = require("../../middlewares/role.middleware");
 
@@ -22,6 +23,7 @@ router.post(
 );
 
 router.use("/:workflowId/steps", workflowStepsRoutes);
+router.use("/:workflowId/executions", workflowExecutionsRoutes);
 
 router.get(
   "/:id",
