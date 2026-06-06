@@ -19,6 +19,8 @@ HTTP Request
 ### Routes
 
 Routes define endpoint paths, connect controllers, and declare access policies.
+Nested routes are used where the URL expresses ownership, such as workflow
+steps and workflow execution creation.
 
 ### Controllers
 
@@ -40,6 +42,8 @@ Services contain application rules:
 - Coordinate repositories.
 - Hash and compare passwords.
 - Generate access tokens.
+- Check resource existence and active status.
+- Register audit logs through `safeRegisterAuditLog`.
 
 ### Repositories
 
@@ -71,6 +75,9 @@ src/modules/
   departments/
   health/
   users/
+  workflows/
+  workflow-steps/
+  workflow-executions/
 ```
 
 ### Health Module
@@ -95,6 +102,83 @@ before persistence.
 Authenticates users, issues access tokens, returns the authenticated user, and
 exposes an ADMIN-only route used to validate authorization behavior.
 
+### Workflows Module
+
+Defines the workflow process. A workflow can be associated with a department
+and creator, can be listed with filters, and is created by ADMIN or MANAGER.
+
+### Workflow Steps Module
+
+Defines ordered steps that belong to a workflow.
+
+Important rules:
+
+- `workflow_id` is required.
+- `step_order` must be positive.
+- `(workflow_id, step_order)` is unique.
+- `action_type` is controlled.
+- `configuration` is stored as JSONB.
+- steps are listed by `step_order ASC`.
+
+### Workflow Executions Module
+
+Records each time a workflow is started.
+
+Important rules:
+
+- `workflow_id` is required.
+- `started_by` comes from `req.user.id`.
+- new executions start as `PENDING`.
+- `input` is optional JSONB.
+- `result`, `started_at`, and `completed_at` are initially nullable.
+- the workflow must exist and be active.
+
+Workflow executions are intentionally not processed yet. The current module
+creates the execution contract only; step processing, Jira calls,
+notifications, retries, and background workers are future concerns.
+
+## Workflow Domain Model
+
+Sprint 3 introduced the initial workflow domain:
+
+```txt
+Workflow
++-- WorkflowStep
++-- WorkflowExecution
+```
+
+Conceptually:
+
+- `Workflow` is the process definition.
+- `WorkflowStep` is an ordered action in that process.
+- `WorkflowExecution` is one real instance of starting that process.
+
+Current execution flow:
+
+```txt
+POST /workflows/:workflowId/executions
+  -> Authenticate user
+  -> Authorize ADMIN, MANAGER, or OPERATOR
+  -> Validate workflowId
+  -> Validate input
+  -> Load workflow
+  -> Reject missing or inactive workflow
+  -> Insert workflow_execution with status PENDING
+  -> Register WORKFLOW_EXECUTION_CREATED audit log
+  -> Return created execution
+```
+
+Deferred execution processing:
+
+```txt
+PENDING execution
+  -> future queue or worker
+  -> load workflow steps
+  -> run step actions
+  -> persist step-level logs
+  -> update execution status/result
+```
+
 ## Authentication Architecture
 
 GovFlow uses JWT-based authentication.
@@ -108,6 +192,7 @@ POST /auth/login
   -> Check active status
   -> Compare password with bcrypt
   -> Generate JWT access token
+  -> Register LOGIN_SUCCESS or LOGIN_FAILED
   -> Return safe user data and access token
 ```
 
@@ -157,6 +242,16 @@ Current route access policy:
 | Departments create | yes | no | no |
 | Audit logs read | yes | yes | no |
 | Audit logs create | yes | no | no |
+| Workflows read | yes | yes | no |
+| Workflows create | yes | yes | no |
+| Workflow steps read | yes | yes | no |
+| Workflow steps create | yes | yes | no |
+| Workflow executions create | yes | yes | yes |
+| Workflow executions read | yes | yes | no |
+
+OPERATOR can start workflow executions because that role represents operational
+users who trigger processes. OPERATOR cannot administer workflows, define
+steps, or list executions globally.
 
 ## Database
 
@@ -211,10 +306,120 @@ metadata
 created_at
 ```
 
+### workflows
+
+Stores workflow definitions.
+
+Important fields:
+
+```txt
+id
+name
+description
+department_id
+created_by
+is_active
+created_at
+updated_at
+```
+
+### workflow_steps
+
+Stores ordered workflow step definitions.
+
+Important fields:
+
+```txt
+id
+workflow_id
+name
+description
+step_order
+action_type
+configuration
+is_active
+created_at
+updated_at
+```
+
+Important constraints and indexes:
+
+```txt
+workflow_id -> workflows(id) ON DELETE CASCADE
+UNIQUE (workflow_id, step_order)
+idx_workflow_steps_workflow_id
+idx_workflow_steps_action_type
+idx_workflow_steps_is_active
+idx_workflow_steps_workflow_order
+```
+
+### workflow_executions
+
+Stores workflow execution instances.
+
+Important fields:
+
+```txt
+id
+workflow_id
+started_by
+status
+input
+result
+started_at
+completed_at
+created_at
+updated_at
+```
+
+Important constraints and indexes:
+
+```txt
+workflow_id -> workflows(id) ON DELETE CASCADE
+started_by -> users(id) ON DELETE SET NULL
+status IN (PENDING, RUNNING, COMPLETED, FAILED, CANCELED)
+idx_workflow_executions_workflow_id
+idx_workflow_executions_started_by
+idx_workflow_executions_status
+idx_workflow_executions_created_at
+idx_workflow_executions_workflow_status
+```
+
 ### schema_migrations
 
 Stores executed migration filenames. This prevents running the same migration
 multiple times.
+
+Current migrations:
+
+```txt
+001_create_audit_logs.sql
+002_create_departments.sql
+003_create_users.sql
+004_create_workflows.sql
+005_create_workflow_steps.sql
+006_create_workflow_executions.sql
+```
+
+## Audit Architecture
+
+Audit logs capture security, administrative, and workflow-domain events.
+
+Current automatic events:
+
+```txt
+HEALTH_CHECK_EXECUTED
+LOGIN_SUCCESS
+LOGIN_FAILED
+DEPARTMENT_CREATED
+USER_CREATED
+WORKFLOW_CREATED
+WORKFLOW_STEP_CREATED
+WORKFLOW_EXECUTION_CREATED
+```
+
+Audit registration in domain services uses `safeRegisterAuditLog`, so a failure
+to write an audit log does not break the primary business operation.
 
 ## Security Decisions
 
@@ -296,6 +501,27 @@ Paginated:
 }
 ```
 
+## Tests
+
+The current automated tests cover:
+
+- migration file contracts
+- validators
+- repository filter builders
+- route registration and route ordering
+
+Useful commands:
+
+```bash
+npm test
+docker exec govflow_api npm test
+docker exec govflow_api npm run db:migrate
+```
+
+Manual validation during Sprint 3 also covered Docker migrations and HTTP
+scenarios for workflow execution creation, RBAC, filters, lookup by ID, and
+audit log creation.
+
 ## Current Trade-offs
 
 ### SQL Instead of ORM
@@ -306,6 +532,7 @@ Reasons:
 
 - Better understanding of SQL and database access.
 - Less abstraction during the foundation phase.
+- Direct control over migrations, constraints, and indexes.
 
 Prisma may be introduced later.
 
@@ -337,6 +564,25 @@ Future evolution:
 - Token versioning.
 - Redis-backed session or revocation strategy.
 
+### No Workflow Processing Yet
+
+Workflow execution creation currently persists a `PENDING` execution only.
+
+Reasons:
+
+- Establish the domain contract before adding automation side effects.
+- Keep API behavior deterministic while modeling the workflow domain.
+- Leave room for queues, workers, retries, and step-level logs.
+
+Future evolution:
+
+- Synchronous prototype processor.
+- BullMQ or another queue.
+- Dedicated worker process.
+- Jira transition/comment integration.
+- Notification dispatch.
+- Step execution logs.
+
 ### Console Logging
 
 The project currently uses `console.log` for request logging.
@@ -356,10 +602,10 @@ Planned improvements:
 TypeScript
 Prisma
 Jira integration
-Workflow domain modeling
 Redis
 BullMQ
 Background jobs
+Workflow execution step logs
 Domain events
 Frontend dashboard
 Deployment pipeline
