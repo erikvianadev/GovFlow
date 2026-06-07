@@ -106,8 +106,8 @@ async function findById(id) {
   return result.rows[0];
 }
 
-async function create({ workflowId, startedBy, input = null }) {
-  const result = await database.query(
+async function create({ workflowId, startedBy, input = null }, db = database) {
+  const result = await db.query(
     `
       INSERT INTO workflow_executions (
         workflow_id,

@@ -1,5 +1,8 @@
 const AppError = require("../../errors/AppError");
+const database = require("../../config/database");
 const workflowsRepository = require("../workflows/workflows.repository");
+const workflowStepsRepository = require("../workflow-steps/workflowSteps.repository");
+const workflowExecutionStepsRepository = require("../workflow-execution-steps/workflowExecutionSteps.repository");
 const workflowExecutionsRepository = require("./workflowExecutions.repository");
 const { safeRegisterAuditLog } = require("../../utils/safeAuditLog");
 const {
@@ -103,24 +106,60 @@ async function createWorkflowExecution({ workflowId, input = null, startedBy }) 
     throw new AppError("Workflow is inactive", 409);
   }
 
-  const execution = await workflowExecutionsRepository.create({
-    workflowId,
-    startedBy,
-    input,
+  const result = await database.transaction(async (trx) => {
+    const execution = await workflowExecutionsRepository.create(
+      {
+        workflowId,
+        startedBy,
+        input,
+      },
+      trx
+    );
+
+    const workflowSteps = await workflowStepsRepository.findActiveByWorkflowId(
+      workflowId,
+      trx
+    );
+
+    if (workflowSteps.length === 0) {
+      throw new AppError(
+        "Workflow must have at least one active step to be executed",
+        409
+      );
+    }
+
+    const executionStepsPayload = workflowSteps.map((step) => ({
+      executionId: execution.id,
+      stepId: step.id,
+    }));
+
+    const executionSteps = await workflowExecutionStepsRepository.createMany(
+      executionStepsPayload,
+      trx
+    );
+
+    return {
+      execution,
+      executionSteps,
+    };
   });
 
   await safeRegisterAuditLog({
     action: "WORKFLOW_EXECUTION_CREATED",
     entity: "workflow_execution",
-    entityId: execution.id,
+    entityId: result.execution.id,
     actorId: startedBy,
     metadata: {
-      workflowId: execution.workflow_id,
-      status: execution.status,
+      workflowId: result.execution.workflow_id,
+      status: result.execution.status,
+      executionStepsCount: result.executionSteps.length,
     },
   });
 
-  return execution;
+  return {
+    ...result.execution,
+    execution_steps_count: result.executionSteps.length,
+  };
 }
 
 module.exports = {

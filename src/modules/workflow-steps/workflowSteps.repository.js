@@ -1,7 +1,7 @@
 const database = require("../../config/database");
 
-async function findByWorkflowId(workflowId) {
-  const result = await database.query(
+async function findByWorkflowId(workflowId, db = database) {
+  const result = await db.query(
     `
       SELECT
         id,
@@ -48,6 +48,31 @@ async function findByWorkflowIdAndStepOrder(workflowId, stepOrder) {
   return result.rows[0];
 }
 
+async function findActiveByWorkflowId(workflowId, db = database) {
+  const result = await db.query(
+    `
+      SELECT
+        id,
+        workflow_id,
+        name,
+        description,
+        step_order,
+        action_type,
+        configuration,
+        is_active,
+        created_at,
+        updated_at
+      FROM workflow_steps
+      WHERE workflow_id = $1
+        AND is_active = true
+      ORDER BY step_order ASC
+    `,
+    [workflowId]
+  );
+
+  return result.rows;
+}
+
 async function create({
   workflowId,
   name,
@@ -88,5 +113,6 @@ async function create({
 module.exports = {
   findByWorkflowId,
   findByWorkflowIdAndStepOrder,
+  findActiveByWorkflowId,
   create,
 };
