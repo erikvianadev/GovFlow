@@ -423,10 +423,29 @@ Validation rules:
 
 Important behavior:
 
-- This endpoint does not process workflow steps.
+- This endpoint automatically creates `workflow_execution_steps` from active
+  workflow steps.
+- If the workflow has no active steps, the API returns `409`.
+- It does not process the execution immediately.
 - It does not call Jira.
 - It does not send notifications.
-- It only records the execution contract for future processing.
+
+Response includes:
+
+```json
+{
+  "execution_steps_count": 2
+}
+```
+
+Workflow without active steps:
+
+```json
+{
+  "success": false,
+  "message": "Workflow must have at least one active step to be executed"
+}
+```
 
 ### GET /workflow-executions
 
@@ -463,6 +482,184 @@ Validation rules:
 | --- | ---: | --- |
 | id | yes | valid UUID |
 
+## Workflow Execution Steps
+
+### GET /workflow-executions/:executionId/steps
+
+Lists the steps generated for a workflow execution ordered by
+`step_order ASC`.
+
+Access: ADMIN, MANAGER.
+
+Headers:
+
+```http
+Authorization: Bearer <accessToken>
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Workflow execution steps retrieved successfully",
+  "data": [
+    {
+      "id": "uuid",
+      "execution_id": "uuid",
+      "step_id": "uuid",
+      "step_name": "Validar solicitacao",
+      "step_description": "Etapa manual de validacao inicial.",
+      "step_order": 1,
+      "action_type": "MANUAL",
+      "configuration": {
+        "instructions": "Review request details"
+      },
+      "status": "PENDING",
+      "started_at": null,
+      "completed_at": null,
+      "error_message": null,
+      "created_at": "2026-06-01T00:00:00.000Z",
+      "updated_at": "2026-06-01T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+Validation rules:
+
+| Field | Required | Rule |
+| --- | ---: | --- |
+| executionId | yes | valid UUID; execution must exist |
+
+## Workflow Processing
+
+### POST /workflow-executions/:id/process
+
+Processes a pending workflow execution synchronously.
+
+Access: ADMIN, MANAGER.
+
+Headers:
+
+```http
+Authorization: Bearer <accessToken>
+```
+
+Behavior:
+
+- validates the execution ID
+- requires the execution to be `PENDING`
+- loads execution steps
+- marks the execution as `RUNNING`
+- processes steps in `step_order ASC`
+- marks each step as `RUNNING`
+- marks successful steps as `COMPLETED`
+- marks the execution as `COMPLETED` if all steps succeed
+- marks the failing step as `FAILED` if a step fails
+- marks the execution as `FAILED` if any step fails
+
+Success response:
+
+```json
+{
+  "success": true,
+  "message": "Workflow execution processed successfully",
+  "data": {
+    "id": "uuid",
+    "workflow_id": "uuid",
+    "started_by": "uuid",
+    "status": "COMPLETED",
+    "result": {
+      "processedBy": "uuid",
+      "stepsProcessed": 2,
+      "steps": [
+        {
+          "executionStepId": "uuid",
+          "stepId": "uuid",
+          "stepOrder": 1,
+          "actionType": "MANUAL",
+          "output": {
+            "simulated": true,
+            "actionType": "MANUAL",
+            "message": "Manual step completed by synchronous processor simulation"
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+Controlled failure response:
+
+A workflow processing failure is returned as HTTP `200` with business status
+`FAILED`.
+
+```json
+{
+  "success": true,
+  "message": "Workflow execution processed successfully",
+  "data": {
+    "id": "uuid",
+    "status": "FAILED",
+    "result": {
+      "processedBy": "uuid",
+      "stepsProcessed": 1,
+      "failedStep": {
+        "executionStepId": "uuid",
+        "stepId": "uuid",
+        "stepOrder": 2,
+        "actionType": "MANUAL",
+        "error": "Simulated processor failure"
+      },
+      "steps": []
+    }
+  }
+}
+```
+
+Errors:
+
+Invalid ID:
+
+```json
+{
+  "success": false,
+  "message": "Validation failed",
+  "errors": [
+    {
+      "field": "id",
+      "message": "Workflow execution ID must be a valid UUID"
+    }
+  ]
+}
+```
+
+Execution not found:
+
+```json
+{
+  "success": false,
+  "message": "Workflow execution not found"
+}
+```
+
+Execution not `PENDING`:
+
+```json
+{
+  "success": false,
+  "message": "Only PENDING workflow executions can be processed"
+}
+```
+
+Audit events:
+
+- `WORKFLOW_EXECUTION_PROCESS_STARTED`
+- `WORKFLOW_EXECUTION_PROCESS_COMPLETED`
+- `WORKFLOW_EXECUTION_PROCESS_FAILED`
+
 ## RBAC Summary
 
 | Resource | ADMIN | MANAGER | OPERATOR |
@@ -478,3 +675,5 @@ Validation rules:
 | Workflow steps create | yes | yes | no |
 | Workflow executions create | yes | yes | yes |
 | Workflow executions read | yes | yes | no |
+| Workflow execution steps read | yes | yes | no |
+| Workflow processing | yes | yes | no |
