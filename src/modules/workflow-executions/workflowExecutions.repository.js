@@ -106,8 +106,8 @@ async function findById(id) {
   return result.rows[0];
 }
 
-async function create({ workflowId, startedBy, input = null }) {
-  const result = await database.query(
+async function create({ workflowId, startedBy, input = null }, db = database) {
+  const result = await db.query(
     `
       INSERT INTO workflow_executions (
         workflow_id,
@@ -133,10 +133,43 @@ async function create({ workflowId, startedBy, input = null }) {
   return result.rows[0];
 }
 
+async function updateStatus(
+  { id, status, startedAt = null, completedAt = null, result = null },
+  db = database
+) {
+  const resultQuery = await db.query(
+    `
+      UPDATE workflow_executions
+      SET
+        status = $2,
+        started_at = COALESCE($3, started_at),
+        completed_at = COALESCE($4, completed_at),
+        result = COALESCE($5, result),
+        updated_at = NOW()
+      WHERE id = $1
+      RETURNING
+        id,
+        workflow_id,
+        started_by,
+        status,
+        input,
+        result,
+        started_at,
+        completed_at,
+        created_at,
+        updated_at
+    `,
+    [id, status, startedAt, completedAt, result]
+  );
+
+  return resultQuery.rows[0];
+}
+
 module.exports = {
   findAll,
   countAll,
   findById,
   create,
+  updateStatus,
   buildWorkflowExecutionsFiltersQuery,
 };

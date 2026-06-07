@@ -7,7 +7,7 @@ integrations such as Jira.
 
 ## Current Status
 
-Sprint 3 - Workflow Domain Foundation completed.
+Sprint 4 - Workflow Processing Foundation completed.
 
 The current backend includes:
 
@@ -29,9 +29,16 @@ The current backend includes:
 - JWT access token generation
 - Authentication middleware
 - Role-based authorization middleware
+- Protected routes
 - Workflows module
 - Workflow steps module
 - Workflow executions module
+- Workflow execution steps module
+- Transaction support for multi-step database operations
+- Synchronous workflow processor
+- Workflow status lifecycle
+- Step-level execution tracking
+- Failure handling for workflow processing
 - Pagination and filters
 - Input validation
 - Automated tests
@@ -69,6 +76,8 @@ src/
     workflows/
     workflow-steps/
     workflow-executions/
+    workflow-execution-steps/
+    workflow-processing/
   routes/
   utils/
   validators/
@@ -153,25 +162,79 @@ Current migrations:
 004_create_workflows.sql
 005_create_workflow_steps.sql
 006_create_workflow_executions.sql
+007_create_workflow_execution_steps.sql
 ```
 
 ## Domain Model
 
-Sprint 3 introduced the workflow domain foundation:
+Sprint 4 completed the workflow processing foundation:
 
 ```txt
 Workflow
 +-- WorkflowStep
 +-- WorkflowExecution
+    +-- WorkflowExecutionStep
 ```
 
 - `workflows` define the process.
 - `workflow_steps` define ordered actions inside a workflow.
 - `workflow_executions` record each time a workflow is started.
+- `workflow_execution_steps` record the state of each step inside an execution.
 
-Workflow executions currently create a `PENDING` record only. GovFlow does not
-process workflow steps, call Jira, send notifications, or run background jobs
-yet. That behavior is intentionally deferred to a future processing layer.
+Workflow executions now create execution steps automatically from active
+workflow steps. The synchronous processor can move an execution through its
+steps and finish it as `COMPLETED` or `FAILED`.
+
+## Workflow Processing
+
+GovFlow now includes an initial synchronous workflow processor.
+
+Current processing flow:
+
+```txt
+Workflow execution created
+  -> Execution steps created automatically from active workflow steps
+  -> Execution starts as PENDING
+  -> Processor marks execution as RUNNING
+  -> Processor processes execution steps in step_order ASC
+  -> Each step moves from PENDING to RUNNING
+  -> Each successful step moves to COMPLETED
+  -> Execution moves to COMPLETED when all steps succeed
+```
+
+Failure flow:
+
+```txt
+Execution RUNNING
+  -> Step RUNNING
+  -> Step FAILED
+  -> Execution FAILED
+```
+
+The processor is currently synchronous and simulated. It does not call Jira,
+email services, webhooks, Redis, BullMQ, or external systems yet.
+
+## Workflow Statuses
+
+### Workflow Execution Statuses
+
+| Status | Description |
+| --- | --- |
+| PENDING | Execution was created but has not started processing |
+| RUNNING | Execution is currently being processed |
+| COMPLETED | Execution completed successfully |
+| FAILED | Execution failed during processing |
+| CANCELED | Execution was canceled |
+
+### Workflow Execution Step Statuses
+
+| Status | Description |
+| --- | --- |
+| PENDING | Step was created but has not started |
+| RUNNING | Step is currently being processed |
+| COMPLETED | Step completed successfully |
+| FAILED | Step failed during processing |
+| SKIPPED | Step was skipped |
 
 ## Roles
 
@@ -209,6 +272,8 @@ Protected routes use role-based access control.
 | `POST /workflows/:workflowId/executions` | ADMIN, MANAGER, OPERATOR |
 | `GET /workflow-executions` | ADMIN, MANAGER |
 | `GET /workflow-executions/:id` | ADMIN, MANAGER |
+| `GET /workflow-executions/:executionId/steps` | ADMIN, MANAGER |
+| `POST /workflow-executions/:id/process` | ADMIN, MANAGER |
 
 ## Authentication
 
@@ -293,6 +358,9 @@ USER_CREATED
 WORKFLOW_CREATED
 WORKFLOW_STEP_CREATED
 WORKFLOW_EXECUTION_CREATED
+WORKFLOW_EXECUTION_PROCESS_STARTED
+WORKFLOW_EXECUTION_PROCESS_COMPLETED
+WORKFLOW_EXECUTION_PROCESS_FAILED
 ```
 
 ## Testing
@@ -309,8 +377,9 @@ Run tests inside the API container:
 docker exec govflow_api npm test
 ```
 
-Sprint 3 currently has automated coverage for migration contracts, validators,
-repository filter builders, and route registration.
+Sprint 4 currently has automated coverage for migration contracts, validators,
+repository helpers, route registration, execution step listing, workflow
+processing, simulated handlers, and failure handling.
 
 ## Useful Commands
 
@@ -327,10 +396,14 @@ docker exec govflow_api npm test
 
 ## Next Steps
 
-Recommended next work:
+Sprint 5 will focus on asynchronous processing foundations.
 
-- Document and open the Sprint 3 PR.
-- Add a processing model for workflow executions.
-- Introduce workflow execution step logs.
-- Evaluate a queue or worker layer for asynchronous automation.
-- Add Jira integration behavior after the workflow execution contract is stable.
+Planned next improvements:
+
+- Redis
+- BullMQ
+- Background workers
+- Retry strategy
+- Job status tracking
+- Safer recovery for RUNNING executions
+- Preparation for Jira integration

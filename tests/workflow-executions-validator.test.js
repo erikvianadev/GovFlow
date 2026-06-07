@@ -51,6 +51,10 @@ test("validateWorkflowId validates nested route workflowId", () => {
 
 test("validateWorkflowExecutionId validates route IDs", () => {
   assert.deepStrictEqual(validateWorkflowExecutionId(validUuid), []);
+  assert.deepStrictEqual(
+    validateWorkflowExecutionId("00000000-0000-0000-0000-000000000000"),
+    []
+  );
   assert.deepStrictEqual(validateWorkflowExecutionId("not-a-uuid"), [
     {
       field: "id",

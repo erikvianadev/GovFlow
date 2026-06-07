@@ -78,6 +78,8 @@ src/modules/
   workflows/
   workflow-steps/
   workflow-executions/
+  workflow-execution-steps/
+  workflow-processing/
 ```
 
 ### Health Module
@@ -122,7 +124,8 @@ Important rules:
 
 ### Workflow Executions Module
 
-Records each time a workflow is started.
+Records each time a workflow is started and creates the execution step
+instances for that run.
 
 Important rules:
 
@@ -132,19 +135,46 @@ Important rules:
 - `input` is optional JSONB.
 - `result`, `started_at`, and `completed_at` are initially nullable.
 - the workflow must exist and be active.
+- the workflow must have at least one active step.
+- execution step creation happens in the same transaction as execution
+  creation.
 
-Workflow executions are intentionally not processed yet. The current module
-creates the execution contract only; step processing, Jira calls,
-notifications, retries, and background workers are future concerns.
+### Workflow Execution Steps Module
+
+Lists the step instances generated for a workflow execution.
+
+Important rules:
+
+- `execution_id` is required.
+- `step_id` is required.
+- new execution steps start as `PENDING`.
+- steps are listed by source workflow `step_order ASC`.
+- response includes step metadata such as `action_type` and `configuration`.
+
+### Workflow Processing Module
+
+Processes pending workflow executions synchronously.
+
+Important rules:
+
+- only `PENDING` executions can be processed.
+- execution status moves to `RUNNING` before step processing.
+- steps are processed in `step_order ASC`.
+- successful steps move to `COMPLETED`.
+- failed steps move to `FAILED` and persist `error_message`.
+- previous steps remain `COMPLETED`.
+- later steps remain `PENDING`.
+- execution ends as `COMPLETED` or `FAILED`.
 
 ## Workflow Domain Model
 
-Sprint 3 introduced the initial workflow domain:
+Sprint 4 introduced the workflow processing foundation:
 
 ```txt
 Workflow
 +-- WorkflowStep
 +-- WorkflowExecution
+    +-- WorkflowExecutionStep
 ```
 
 Conceptually:
@@ -152,6 +182,7 @@ Conceptually:
 - `Workflow` is the process definition.
 - `WorkflowStep` is an ordered action in that process.
 - `WorkflowExecution` is one real instance of starting that process.
+- `WorkflowExecutionStep` is one real instance of a step inside an execution.
 
 Current execution flow:
 
@@ -163,21 +194,147 @@ POST /workflows/:workflowId/executions
   -> Validate input
   -> Load workflow
   -> Reject missing or inactive workflow
+  -> Reject workflow without active steps
+  -> BEGIN
   -> Insert workflow_execution with status PENDING
-  -> Register WORKFLOW_EXECUTION_CREATED audit log
-  -> Return created execution
+  -> Load active workflow_steps
+  -> Insert workflow_execution_steps with status PENDING
+  -> COMMIT
+  -> Register WORKFLOW_EXECUTION_CREATED audit log with executionStepsCount
+  -> Return created execution with execution_steps_count
 ```
 
-Deferred execution processing:
+Processing flow:
 
 ```txt
-PENDING execution
-  -> future queue or worker
-  -> load workflow steps
-  -> run step actions
-  -> persist step-level logs
-  -> update execution status/result
+POST /workflow-executions/:id/process
+  -> Validate execution
+  -> Ensure execution is PENDING
+  -> Load workflow_execution_steps
+  -> Set execution RUNNING
+  -> For each step ordered by step_order ASC:
+       set step RUNNING
+       execute action handler
+       set step COMPLETED or FAILED
+  -> Set execution COMPLETED or FAILED
 ```
+
+## Workflow Processing Architecture
+
+GovFlow currently uses a synchronous workflow processor.
+
+Current creation flow:
+
+```txt
+POST /workflows/:workflowId/executions
+  -> Validate workflow
+  -> Create workflow_execution
+  -> Load active workflow_steps
+  -> Create workflow_execution_steps
+  -> Return execution with execution_steps_count
+```
+
+Current processing flow:
+
+```txt
+POST /workflow-executions/:id/process
+  -> Validate execution
+  -> Ensure execution is PENDING
+  -> Load workflow_execution_steps
+  -> Set execution RUNNING
+  -> For each step ordered by step_order ASC:
+       set step RUNNING
+       execute action handler
+       set step COMPLETED or FAILED
+  -> Set execution COMPLETED or FAILED
+```
+
+## Workflow Step Handlers
+
+Workflow step processing is currently simulated through internal handlers.
+
+Supported action types:
+
+```txt
+MANUAL
+NOTIFICATION
+JIRA_TRANSITION
+JIRA_COMMENT
+```
+
+Current behavior:
+
+| Action Type | Current Behavior |
+| --- | --- |
+| MANUAL | Simulated completion |
+| NOTIFICATION | Simulated completion |
+| JIRA_TRANSITION | Simulated completion |
+| JIRA_COMMENT | Simulated completion |
+
+No external systems are called yet.
+
+## Workflow Failure Handling
+
+The processor supports controlled step failures using step configuration.
+
+Example:
+
+```json
+{
+  "shouldFail": true,
+  "failureMessage": "Simulated processor failure"
+}
+```
+
+When a step fails:
+
+```txt
+Current step -> FAILED
+Current step error_message -> error message
+Previous steps -> remain COMPLETED
+Next steps -> remain PENDING
+Execution -> FAILED
+Execution result.failedStep -> failure details
+Audit log -> WORKFLOW_EXECUTION_PROCESS_FAILED
+```
+
+A controlled workflow failure is not treated as an API error. The API returns
+HTTP `200` with execution status `FAILED`.
+
+## Transaction Strategy
+
+GovFlow supports database transactions through `database.transaction`.
+
+This is used when creating workflow executions and their execution steps.
+
+Creation flow:
+
+```txt
+BEGIN
+  create workflow_execution
+  load active workflow_steps
+  create workflow_execution_steps
+COMMIT
+```
+
+If any operation fails:
+
+```txt
+ROLLBACK
+```
+
+This prevents orphaned workflow executions without execution steps.
+
+The workflow processor does not use one long transaction for the entire
+processing flow.
+
+Reasons:
+
+- processing status should remain traceable
+- failed steps should stay persisted
+- long transactions are not suitable for future external calls
+- future Jira/email/webhook calls should not happen inside a database
+  transaction
 
 ## Authentication Architecture
 
@@ -248,6 +405,8 @@ Current route access policy:
 | Workflow steps create | yes | yes | no |
 | Workflow executions create | yes | yes | yes |
 | Workflow executions read | yes | yes | no |
+| Workflow execution steps read | yes | yes | no |
+| Workflow processing | yes | yes | no |
 
 OPERATOR can start workflow executions because that role represents operational
 users who trigger processes. OPERATOR cannot administer workflows, define
@@ -385,6 +544,37 @@ idx_workflow_executions_created_at
 idx_workflow_executions_workflow_status
 ```
 
+### workflow_execution_steps
+
+Stores step instances for each workflow execution.
+
+Important fields:
+
+```txt
+id
+execution_id
+step_id
+status
+started_at
+completed_at
+error_message
+created_at
+updated_at
+```
+
+Important constraints and indexes:
+
+```txt
+execution_id -> workflow_executions(id) ON DELETE CASCADE
+step_id -> workflow_steps(id) ON DELETE CASCADE
+status IN (PENDING, RUNNING, COMPLETED, FAILED, SKIPPED)
+UNIQUE (execution_id, step_id)
+idx_workflow_execution_steps_execution_id
+idx_workflow_execution_steps_step_id
+idx_workflow_execution_steps_status
+idx_workflow_execution_steps_execution_status
+```
+
 ### schema_migrations
 
 Stores executed migration filenames. This prevents running the same migration
@@ -399,6 +589,7 @@ Current migrations:
 004_create_workflows.sql
 005_create_workflow_steps.sql
 006_create_workflow_executions.sql
+007_create_workflow_execution_steps.sql
 ```
 
 ## Audit Architecture
@@ -416,6 +607,9 @@ USER_CREATED
 WORKFLOW_CREATED
 WORKFLOW_STEP_CREATED
 WORKFLOW_EXECUTION_CREATED
+WORKFLOW_EXECUTION_PROCESS_STARTED
+WORKFLOW_EXECUTION_PROCESS_COMPLETED
+WORKFLOW_EXECUTION_PROCESS_FAILED
 ```
 
 Audit registration in domain services uses `safeRegisterAuditLog`, so a failure
@@ -509,6 +703,11 @@ The current automated tests cover:
 - validators
 - repository filter builders
 - route registration and route ordering
+- transaction helper behavior
+- execution step repository behavior
+- workflow processor service behavior
+- workflow step handler behavior
+- controlled workflow processing failures
 
 Useful commands:
 
@@ -518,9 +717,10 @@ docker exec govflow_api npm test
 docker exec govflow_api npm run db:migrate
 ```
 
-Manual validation during Sprint 3 also covered Docker migrations and HTTP
-scenarios for workflow execution creation, RBAC, filters, lookup by ID, and
-audit log creation.
+Manual validation during Sprint 4 also covered Docker migrations, HTTP
+scenarios for workflow execution creation, execution step listing, synchronous
+processing, controlled failures, RBAC, filters, lookup by ID, and audit log
+creation.
 
 ## Current Trade-offs
 
@@ -564,24 +764,32 @@ Future evolution:
 - Token versioning.
 - Redis-backed session or revocation strategy.
 
-### No Workflow Processing Yet
+### Synchronous Workflow Processing
 
-Workflow execution creation currently persists a `PENDING` execution only.
+Workflow processing currently runs inside the API process.
 
 Reasons:
 
-- Establish the domain contract before adding automation side effects.
-- Keep API behavior deterministic while modeling the workflow domain.
-- Leave room for queues, workers, retries, and step-level logs.
+- Prove the execution lifecycle before adding queue infrastructure.
+- Keep behavior easy to inspect while the domain is still evolving.
+- Avoid Jira, email, webhook, and worker complexity before the processor
+  contract is stable.
+
+Trade-offs:
+
+- Processing is not asynchronous yet.
+- A process crash can leave an execution in `RUNNING`.
+- There is no retry or timeout recovery yet.
 
 Future evolution:
 
-- Synchronous prototype processor.
-- BullMQ or another queue.
-- Dedicated worker process.
-- Jira transition/comment integration.
-- Notification dispatch.
-- Step execution logs.
+- Redis
+- BullMQ or another queue
+- Dedicated worker process
+- Retry strategy
+- Jira transition/comment integration
+- Notification dispatch
+- Step execution logs
 
 ### Console Logging
 
@@ -601,12 +809,35 @@ Planned improvements:
 ```txt
 TypeScript
 Prisma
-Jira integration
 Redis
 BullMQ
 Background jobs
+Retry strategy
+RUNNING execution recovery
+Jira integration
 Workflow execution step logs
 Domain events
 Frontend dashboard
 Deployment pipeline
 ```
+
+## Future Processing Evolution
+
+The current processor is synchronous and runs inside the API process.
+
+This is intentional for the current sprint.
+
+Future evolution:
+
+```txt
+Synchronous processor
+  -> Redis
+  -> BullMQ
+  -> Background worker
+  -> Retry strategy
+  -> Jira integration
+  -> Step execution logs
+```
+
+The current implementation proves the processing lifecycle before introducing
+queue infrastructure.
