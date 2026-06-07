@@ -77,7 +77,7 @@ test("findByExecutionId returns execution steps ordered by workflow step order",
 
   assert.match(
     capturedSql,
-    /from workflow_execution_steps inner join workflow_steps on workflow_steps.id = workflow_execution_steps.step_id where workflow_execution_steps.execution_id = \$1 order by workflow_steps.step_order asc/
+    /workflow_steps.description as step_description.*workflow_steps.configuration.*from workflow_execution_steps inner join workflow_steps on workflow_steps.id = workflow_execution_steps.step_id where workflow_execution_steps.execution_id = \$1 order by workflow_steps.step_order asc/
   );
   assert.deepStrictEqual(capturedValues, ["execution-1"]);
 });
