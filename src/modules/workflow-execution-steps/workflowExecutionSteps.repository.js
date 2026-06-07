@@ -69,7 +69,39 @@ async function findByExecutionId(executionId, db = database) {
   return result.rows;
 }
 
+async function updateStatus(
+  { id, status, startedAt = null, completedAt = null, errorMessage = null },
+  db = database
+) {
+  const result = await db.query(
+    `
+      UPDATE workflow_execution_steps
+      SET
+        status = $2,
+        started_at = COALESCE($3, started_at),
+        completed_at = COALESCE($4, completed_at),
+        error_message = $5,
+        updated_at = NOW()
+      WHERE id = $1
+      RETURNING
+        id,
+        execution_id,
+        step_id,
+        status,
+        started_at,
+        completed_at,
+        error_message,
+        created_at,
+        updated_at
+    `,
+    [id, status, startedAt, completedAt, errorMessage]
+  );
+
+  return result.rows[0];
+}
+
 module.exports = {
   createMany,
   findByExecutionId,
+  updateStatus,
 };

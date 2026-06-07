@@ -81,3 +81,50 @@ test("findByExecutionId returns execution steps ordered by workflow step order",
   );
   assert.deepStrictEqual(capturedValues, ["execution-1"]);
 });
+
+test("updateStatus updates workflow execution step lifecycle fields and clears errors", async () => {
+  let capturedSql;
+  let capturedValues;
+  const db = {
+    query: async (sql, values) => {
+      capturedSql = sql.replace(/\s+/g, " ").trim().toLowerCase();
+      capturedValues = values;
+      return {
+        rows: [
+          {
+            id: "execution-step-1",
+            status: "COMPLETED",
+            error_message: null,
+          },
+        ],
+      };
+    },
+  };
+  const startedAt = new Date("2026-01-01T00:00:00.000Z");
+  const completedAt = new Date("2026-01-01T00:01:00.000Z");
+
+  const updated = await repository.updateStatus(
+    {
+      id: "execution-step-1",
+      status: "COMPLETED",
+      startedAt,
+      completedAt,
+      errorMessage: null,
+    },
+    db
+  );
+
+  assert.match(
+    capturedSql,
+    /update workflow_execution_steps set status = \$2, started_at = coalesce\(\$3, started_at\), completed_at = coalesce\(\$4, completed_at\), error_message = \$5, updated_at = now\(\) where id = \$1 returning/
+  );
+  assert.deepStrictEqual(capturedValues, [
+    "execution-step-1",
+    "COMPLETED",
+    startedAt,
+    completedAt,
+    null,
+  ]);
+  assert.strictEqual(updated.status, "COMPLETED");
+  assert.strictEqual(updated.error_message, null);
+});
