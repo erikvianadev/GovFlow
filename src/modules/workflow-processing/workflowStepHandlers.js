@@ -1,4 +1,8 @@
 async function handleWorkflowStep(step) {
+  if (shouldSimulateFailure(step)) {
+    throw new Error(getFailureMessage(step));
+  }
+
   switch (step.action_type) {
     case "MANUAL":
       return handleManualStep(step);
@@ -15,6 +19,17 @@ async function handleWorkflowStep(step) {
     default:
       throw new Error(`Unsupported action type: ${step.action_type}`);
   }
+}
+
+function shouldSimulateFailure(step) {
+  return step.configuration && step.configuration.shouldFail === true;
+}
+
+function getFailureMessage(step) {
+  return (
+    step.configuration?.failureMessage ||
+    `Simulated failure for action type ${step.action_type}`
+  );
 }
 
 async function handleManualStep(step) {

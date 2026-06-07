@@ -6,7 +6,6 @@ const servicePath = path.join(
   __dirname,
   "../src/modules/workflow-processing/workflowProcessor.service.js"
 );
-const databasePath = path.join(__dirname, "../src/config/database.js");
 const workflowExecutionsRepositoryPath = path.join(
   __dirname,
   "../src/modules/workflow-executions/workflowExecutions.repository.js"
@@ -63,28 +62,20 @@ function loadService({
     audit: [],
     executionUpdates: [],
     stepUpdates: [],
-    transactionUsed: false,
   };
 
   [
     servicePath,
-    databasePath,
     workflowExecutionsRepositoryPath,
     workflowExecutionStepsRepositoryPath,
     safeAuditLogPath,
     workflowStepHandlersPath,
   ].forEach((modulePath) => delete require.cache[modulePath]);
 
-  mockModule(databasePath, {
-    transaction: async (callback) => {
-      calls.transactionUsed = true;
-      return callback(trx);
-    },
-  });
   mockModule(workflowExecutionsRepositoryPath, {
     findById: async () => execution,
     updateStatus: async (payload, db) => {
-      assert.strictEqual(db, trx);
+      assert.strictEqual(db, undefined);
       calls.executionUpdates.push(payload);
 
       return {
@@ -98,7 +89,7 @@ function loadService({
   mockModule(workflowExecutionStepsRepositoryPath, {
     findByExecutionId: async () => steps,
     updateStatus: async (payload, db) => {
-      assert.strictEqual(db, trx);
+      assert.strictEqual(db, undefined);
       calls.stepUpdates.push(payload);
       return payload;
     },
@@ -200,7 +191,6 @@ test("processWorkflowExecution processes steps in order and completes the execut
     processedBy: validUserId,
   });
 
-  assert.strictEqual(calls.transactionUsed, true);
   assert.deepStrictEqual(
     calls.executionUpdates.map((update) => update.status),
     ["RUNNING", "COMPLETED"]
@@ -224,7 +214,7 @@ test("processWorkflowExecution processes steps in order and completes the execut
   assert.strictEqual(result.status, "COMPLETED");
 });
 
-test("processWorkflowExecution marks the failed step and execution when a handler fails", async () => {
+test("processWorkflowExecution returns a failed execution when a handler fails", async () => {
   const { service, calls } = loadService({
     handlerImpl: async (step) => {
       if (step.id === "execution-step-2") {
@@ -241,13 +231,10 @@ test("processWorkflowExecution marks the failed step and execution when a handle
     },
   });
 
-  await assert.rejects(
-    service.processWorkflowExecution({
-      executionId: validExecutionId,
-      processedBy: validUserId,
-    }),
-    /handler failed/
-  );
+  const result = await service.processWorkflowExecution({
+    executionId: validExecutionId,
+    processedBy: validUserId,
+  });
 
   assert.deepStrictEqual(
     calls.stepUpdates.map((update) => update.status),
@@ -255,7 +242,12 @@ test("processWorkflowExecution marks the failed step and execution when a handle
   );
   assert.strictEqual(calls.stepUpdates[3].errorMessage, "handler failed");
   assert.strictEqual(calls.executionUpdates.at(-1).status, "FAILED");
-  assert.strictEqual(calls.executionUpdates.at(-1).result.error, "handler failed");
+  assert.strictEqual(
+    calls.executionUpdates.at(-1).result.failedStep.error,
+    "handler failed"
+  );
+  assert.strictEqual(calls.executionUpdates.at(-1).result.stepsProcessed, 1);
+  assert.strictEqual(result.status, "FAILED");
   assert.deepStrictEqual(
     calls.audit.map((entry) => entry.action),
     [
@@ -263,4 +255,59 @@ test("processWorkflowExecution marks the failed step and execution when a handle
       "WORKFLOW_EXECUTION_PROCESS_FAILED",
     ]
   );
+});
+
+test("processWorkflowExecution stops processing steps after the first failure", async () => {
+  const { service, calls } = loadService({
+    steps: [
+      {
+        id: "execution-step-1",
+        step_id: "step-1",
+        step_order: 1,
+        action_type: "MANUAL",
+      },
+      {
+        id: "execution-step-2",
+        step_id: "step-2",
+        step_order: 2,
+        action_type: "NOTIFICATION",
+      },
+      {
+        id: "execution-step-3",
+        step_id: "step-3",
+        step_order: 3,
+        action_type: "MANUAL",
+      },
+    ],
+    handlerImpl: async (step) => {
+      if (step.id === "execution-step-2") {
+        throw new Error("second step failed");
+      }
+
+      return {
+        status: "COMPLETED",
+        output: {
+          simulated: true,
+          actionType: step.action_type,
+        },
+      };
+    },
+  });
+
+  const result = await service.processWorkflowExecution({
+    executionId: validExecutionId,
+    processedBy: validUserId,
+  });
+
+  assert.deepStrictEqual(
+    calls.stepUpdates.map((update) => update.id),
+    [
+      "execution-step-1",
+      "execution-step-1",
+      "execution-step-2",
+      "execution-step-2",
+    ]
+  );
+  assert.strictEqual(result.status, "FAILED");
+  assert.strictEqual(calls.executionUpdates.at(-1).result.failedStep.stepOrder, 2);
 });

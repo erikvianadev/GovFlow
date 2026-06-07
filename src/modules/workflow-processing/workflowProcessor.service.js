@@ -1,4 +1,3 @@
-const database = require("../../config/database");
 const AppError = require("../../errors/AppError");
 const workflowExecutionsRepository = require("../workflow-executions/workflowExecutions.repository");
 const workflowExecutionStepsRepository = require("../workflow-execution-steps/workflowExecutionSteps.repository");
@@ -48,117 +47,94 @@ async function processWorkflowExecution({ executionId, processedBy }) {
     },
   });
 
-  let processingError = null;
+  await workflowExecutionsRepository.updateStatus({
+    id: executionId,
+    status: "RUNNING",
+    startedAt: new Date(),
+  });
 
-  const result = await database.transaction(async (trx) => {
-    await workflowExecutionsRepository.updateStatus(
-      {
-        id: executionId,
-        status: "RUNNING",
-        startedAt: new Date(),
-      },
-      trx
-    );
+  const stepOutputs = [];
 
-    const stepOutputs = [];
+  for (const step of steps) {
+    await workflowExecutionStepsRepository.updateStatus({
+      id: step.id,
+      status: "RUNNING",
+      startedAt: new Date(),
+      errorMessage: null,
+    });
 
-    for (const step of steps) {
+    try {
+      const handlerResult = await handleWorkflowStep(step);
+
       await workflowExecutionStepsRepository.updateStatus(
         {
           id: step.id,
-          status: "RUNNING",
-          startedAt: new Date(),
+          status: "COMPLETED",
+          completedAt: new Date(),
           errorMessage: null,
-        },
-        trx
+        }
       );
 
-      try {
-        const handlerResult = await handleWorkflowStep(step);
+      stepOutputs.push({
+        executionStepId: step.id,
+        stepId: step.step_id,
+        stepOrder: step.step_order,
+        actionType: step.action_type,
+        output: handlerResult.output,
+      });
+    } catch (error) {
+      await workflowExecutionStepsRepository.updateStatus({
+        id: step.id,
+        status: "FAILED",
+        completedAt: new Date(),
+        errorMessage: error.message,
+      });
 
-        await workflowExecutionStepsRepository.updateStatus(
-          {
-            id: step.id,
-            status: "COMPLETED",
-            completedAt: new Date(),
-            errorMessage: null,
-          },
-          trx
-        );
-
-        stepOutputs.push({
-          executionStepId: step.id,
-          stepId: step.step_id,
-          stepOrder: step.step_order,
-          actionType: step.action_type,
-          output: handlerResult.output,
-        });
-      } catch (error) {
-        processingError = error;
-
-        await workflowExecutionStepsRepository.updateStatus(
-          {
-            id: step.id,
-            status: "FAILED",
-            completedAt: new Date(),
-            errorMessage: error.message,
-          },
-          trx
-        );
-
-        return workflowExecutionsRepository.updateStatus(
-          {
-            id: executionId,
-            status: "FAILED",
-            completedAt: new Date(),
-            result: {
-              error: error.message,
-              processedBy,
-              stepsProcessed: stepOutputs.length,
-              failedStep: {
-                executionStepId: step.id,
-                stepId: step.step_id,
-                stepOrder: step.step_order,
-                actionType: step.action_type,
-              },
-              steps: stepOutputs,
-            },
-          },
-          trx
-        );
-      }
-    }
-
-    return workflowExecutionsRepository.updateStatus(
-      {
+      const failedExecution = await workflowExecutionsRepository.updateStatus({
         id: executionId,
-        status: "COMPLETED",
+        status: "FAILED",
         completedAt: new Date(),
         result: {
           processedBy,
           stepsProcessed: stepOutputs.length,
+          failedStep: {
+            executionStepId: step.id,
+            stepId: step.step_id,
+            stepOrder: step.step_order,
+            actionType: step.action_type,
+            error: error.message,
+          },
           steps: stepOutputs,
         },
-      },
-      trx
-    );
-  });
+      });
 
-  if (processingError) {
-    await safeRegisterAuditLog({
-      action: "WORKFLOW_EXECUTION_PROCESS_FAILED",
-      entity: "workflow_execution",
-      entityId: executionId,
-      actorId: processedBy,
-      metadata: {
-        workflowId: result.workflow_id,
-        status: result.status,
-        error: processingError.message,
-      },
-    });
+      await safeRegisterAuditLog({
+        action: "WORKFLOW_EXECUTION_PROCESS_FAILED",
+        entity: "workflow_execution",
+        entityId: executionId,
+        actorId: processedBy,
+        metadata: {
+          workflowId: execution.workflow_id,
+          failedStepId: step.step_id,
+          failedStepOrder: step.step_order,
+          error: error.message,
+        },
+      });
 
-    throw processingError;
+      return failedExecution;
+    }
   }
+
+  const completedExecution = await workflowExecutionsRepository.updateStatus({
+    id: executionId,
+    status: "COMPLETED",
+    completedAt: new Date(),
+    result: {
+      processedBy,
+      stepsProcessed: stepOutputs.length,
+      steps: stepOutputs,
+    },
+  });
 
   await safeRegisterAuditLog({
     action: "WORKFLOW_EXECUTION_PROCESS_COMPLETED",
@@ -166,12 +142,13 @@ async function processWorkflowExecution({ executionId, processedBy }) {
     entityId: executionId,
     actorId: processedBy,
     metadata: {
-      workflowId: result.workflow_id,
-      status: result.status,
+      workflowId: completedExecution.workflow_id,
+      status: completedExecution.status,
+      stepsProcessed: stepOutputs.length,
     },
   });
 
-  return result;
+  return completedExecution;
 }
 
 module.exports = {

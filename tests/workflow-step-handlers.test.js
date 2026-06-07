@@ -32,3 +32,28 @@ test("handleWorkflowStep rejects unsupported action types", async () => {
     /Unsupported action type: UNSUPPORTED/
   );
 });
+
+test("handleWorkflowStep supports simulated failures from configuration", async () => {
+  await assert.rejects(
+    handleWorkflowStep({
+      action_type: "MANUAL",
+      configuration: {
+        shouldFail: true,
+        failureMessage: "Simulated processor failure",
+      },
+    }),
+    /Simulated processor failure/
+  );
+});
+
+test("handleWorkflowStep uses a default simulated failure message", async () => {
+  await assert.rejects(
+    handleWorkflowStep({
+      action_type: "NOTIFICATION",
+      configuration: {
+        shouldFail: true,
+      },
+    }),
+    /Simulated failure for action type NOTIFICATION/
+  );
+});
