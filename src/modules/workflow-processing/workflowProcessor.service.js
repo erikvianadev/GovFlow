@@ -36,6 +36,22 @@ async function processWorkflowExecution({ executionId, processedBy }) {
     throw new AppError("Workflow execution has no steps to process", 409);
   }
 
+  // Atomically transition PENDING -> RUNNING. Only one caller can win this
+  // claim, so concurrent /process requests (or a future worker racing the
+  // synchronous endpoint) cannot process the same execution twice.
+  const claimedExecution = await workflowExecutionsRepository.claimPendingExecution(
+    {
+      id: executionId,
+    }
+  );
+
+  if (!claimedExecution) {
+    throw new AppError(
+      "Only PENDING workflow executions can be processed",
+      409
+    );
+  }
+
   await safeRegisterAuditLog({
     action: "WORKFLOW_EXECUTION_PROCESS_STARTED",
     entity: "workflow_execution",
@@ -45,12 +61,6 @@ async function processWorkflowExecution({ executionId, processedBy }) {
       workflowId: execution.workflow_id,
       stepsCount: steps.length,
     },
-  });
-
-  await workflowExecutionsRepository.updateStatus({
-    id: executionId,
-    status: "RUNNING",
-    startedAt: new Date(),
   });
 
   const stepOutputs = [];

@@ -3,6 +3,7 @@ const test = require("node:test");
 
 const {
   buildWorkflowExecutionsFiltersQuery,
+  claimPendingExecution,
   updateStatus,
 } = require("../src/modules/workflow-executions/workflowExecutions.repository");
 
@@ -27,6 +28,44 @@ test("buildWorkflowExecutionsFiltersQuery builds ordered parameterized filters",
       "WHERE workflow_executions.workflow_id = $1 AND workflow_executions.started_by = $2 AND workflow_executions.status = $3",
     values: ["workflow-id", "user-id", "PENDING"],
   });
+});
+
+test("claimPendingExecution atomically transitions only PENDING executions to RUNNING", async () => {
+  let capturedSql;
+  let capturedValues;
+  const db = {
+    query: async (sql, values) => {
+      capturedSql = sql.replace(/\s+/g, " ").trim().toLowerCase();
+      capturedValues = values;
+      return {
+        rows: [
+          {
+            id: "execution-1",
+            status: "RUNNING",
+          },
+        ],
+      };
+    },
+  };
+
+  const claimed = await claimPendingExecution({ id: "execution-1" }, db);
+
+  assert.match(
+    capturedSql,
+    /update workflow_executions set status = 'running', started_at = coalesce\(started_at, now\(\)\), updated_at = now\(\) where id = \$1 and status = 'pending' returning/
+  );
+  assert.deepStrictEqual(capturedValues, ["execution-1"]);
+  assert.strictEqual(claimed.status, "RUNNING");
+});
+
+test("claimPendingExecution returns undefined when no PENDING row matches", async () => {
+  const db = {
+    query: async () => ({ rows: [] }),
+  };
+
+  const claimed = await claimPendingExecution({ id: "execution-1" }, db);
+
+  assert.strictEqual(claimed, undefined);
 });
 
 test("updateStatus updates workflow execution lifecycle fields", async () => {

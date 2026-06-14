@@ -133,6 +133,34 @@ async function create({ workflowId, startedBy, input = null }, db = database) {
   return result.rows[0];
 }
 
+async function claimPendingExecution({ id }, db = database) {
+  const result = await db.query(
+    `
+      UPDATE workflow_executions
+      SET
+        status = 'RUNNING',
+        started_at = COALESCE(started_at, NOW()),
+        updated_at = NOW()
+      WHERE id = $1
+        AND status = 'PENDING'
+      RETURNING
+        id,
+        workflow_id,
+        started_by,
+        status,
+        input,
+        result,
+        started_at,
+        completed_at,
+        created_at,
+        updated_at
+    `,
+    [id]
+  );
+
+  return result.rows[0];
+}
+
 async function updateStatus(
   { id, status, startedAt = null, completedAt = null, result = null },
   db = database
@@ -170,6 +198,7 @@ module.exports = {
   countAll,
   findById,
   create,
+  claimPendingExecution,
   updateStatus,
   buildWorkflowExecutionsFiltersQuery,
 };

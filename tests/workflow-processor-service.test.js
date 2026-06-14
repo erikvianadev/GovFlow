@@ -54,12 +54,14 @@ function loadService({
     },
   ],
   handlerImpl,
+  claimable = true,
 } = {}) {
   const trx = {
     query: async () => ({ rows: [] }),
   };
   const calls = {
     audit: [],
+    claims: [],
     executionUpdates: [],
     stepUpdates: [],
   };
@@ -74,6 +76,20 @@ function loadService({
 
   mockModule(workflowExecutionsRepositoryPath, {
     findById: async () => execution,
+    claimPendingExecution: async (payload, db) => {
+      assert.strictEqual(db, undefined);
+      calls.claims.push(payload);
+
+      if (!claimable) {
+        return undefined;
+      }
+
+      return {
+        id: payload.id,
+        workflow_id: execution ? execution.workflow_id : "workflow-1",
+        status: "RUNNING",
+      };
+    },
     updateStatus: async (payload, db) => {
       assert.strictEqual(db, undefined);
       calls.executionUpdates.push(payload);
@@ -183,6 +199,27 @@ test("processWorkflowExecution blocks executions without steps", async () => {
   );
 });
 
+test("processWorkflowExecution returns 409 when the execution is already claimed", async () => {
+  const { service, calls } = loadService({
+    claimable: false,
+  });
+
+  await assert.rejects(
+    service.processWorkflowExecution({
+      executionId: validExecutionId,
+      processedBy: validUserId,
+    }),
+    (error) =>
+      error.statusCode === 409 &&
+      error.message === "Only PENDING workflow executions can be processed"
+  );
+
+  assert.strictEqual(calls.claims.length, 1);
+  assert.strictEqual(calls.executionUpdates.length, 0);
+  assert.strictEqual(calls.stepUpdates.length, 0);
+  assert.strictEqual(calls.audit.length, 0);
+});
+
 test("processWorkflowExecution processes steps in order and completes the execution", async () => {
   const { service, calls } = loadService();
 
@@ -191,17 +228,19 @@ test("processWorkflowExecution processes steps in order and completes the execut
     processedBy: validUserId,
   });
 
+  assert.strictEqual(calls.claims.length, 1);
+  assert.strictEqual(calls.claims[0].id, validExecutionId);
   assert.deepStrictEqual(
     calls.executionUpdates.map((update) => update.status),
-    ["RUNNING", "COMPLETED"]
+    ["COMPLETED"]
   );
   assert.deepStrictEqual(
     calls.stepUpdates.map((update) => update.status),
     ["RUNNING", "COMPLETED", "RUNNING", "COMPLETED"]
   );
-  assert.strictEqual(calls.executionUpdates[1].result.stepsProcessed, 2);
+  assert.strictEqual(calls.executionUpdates.at(-1).result.stepsProcessed, 2);
   assert.deepStrictEqual(
-    calls.executionUpdates[1].result.steps.map((step) => step.stepOrder),
+    calls.executionUpdates.at(-1).result.steps.map((step) => step.stepOrder),
     [1, 2]
   );
   assert.deepStrictEqual(
