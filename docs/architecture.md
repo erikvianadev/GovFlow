@@ -260,6 +260,29 @@ GET /workflow-executions/:id/job
 Completed jobs are retained in the queue so the API can report `completed`
 instead of immediately returning `not_found`.
 
+## Retry Strategy
+
+GovFlow distinguishes business failures from technical failures.
+
+Business failures are expected workflow outcomes, such as a step failing
+validation. They mark the workflow execution as `FAILED` and fail the BullMQ job
+with `UnrecoverableError`, so BullMQ does not retry the job unnecessarily.
+
+Technical failures are unexpected infrastructure or runtime errors. They are
+thrown as normal errors so BullMQ can retry the job according to the queue
+configuration.
+
+Current retry strategy:
+
+- attempts: 3
+- backoff: exponential
+- delay: 3000ms
+- removeOnComplete: false
+- removeOnFail: false
+
+The public job status endpoint exposes retry counters and failure reason, but
+does not expose job stacktraces.
+
 Current creation flow:
 
 ```txt

@@ -1,4 +1,4 @@
-const { Worker } = require("bullmq");
+const { Worker, UnrecoverableError } = require("bullmq");
 
 const { bullMQConnection } = require("../config/bullmq");
 const {
@@ -16,14 +16,22 @@ function createWorkflowProcessingWorker() {
         jobId: job.id,
         executionId,
         processedBy,
+        attemptsMade: job.attemptsMade,
       });
 
       if (!executionId) {
-        throw new Error("Job data must include executionId");
+        throw new UnrecoverableError("Job data must include executionId");
       }
 
       if (!processedBy) {
-        throw new Error("Job data must include processedBy");
+        throw new UnrecoverableError("Job data must include processedBy");
+      }
+
+      if (
+        process.env.NODE_ENV !== "production" &&
+        job.data.simulateTechnicalFailure === true
+      ) {
+        throw new Error("Simulated technical failure");
       }
 
       const result = await workflowProcessorService.processWorkflowExecution({
@@ -32,8 +40,9 @@ function createWorkflowProcessingWorker() {
       });
 
       if (result.status === "FAILED") {
-        throw new Error(
-          result.result?.failedStep?.error || "Workflow execution failed"
+        throw new UnrecoverableError(
+          result.result?.failedStep?.error ||
+            "Workflow execution failed by business rule"
         );
       }
 
@@ -59,7 +68,9 @@ function createWorkflowProcessingWorker() {
     console.error("Workflow processing job failed:", {
       jobId: job?.id,
       executionId: job?.data?.executionId,
-      error: error.message,
+      attemptsMade: job?.attemptsMade,
+      attemptsStarted: job?.attemptsStarted,
+      failedReason: error.message,
     });
   });
 

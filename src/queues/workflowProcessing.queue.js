@@ -11,6 +11,11 @@ function buildWorkflowProcessingJobId(executionId) {
 const workflowProcessingQueue = new Queue(WORKFLOW_PROCESSING_QUEUE_NAME, {
   connection: bullMQConnection,
   defaultJobOptions: {
+    attempts: 3,
+    backoff: {
+      type: "exponential",
+      delay: 3000,
+    },
     removeOnComplete: false,
     removeOnFail: false,
   },

@@ -217,6 +217,19 @@ Execution RUNNING
 The processor is currently simulated. It does not call Jira, email services,
 webhooks, or external systems yet.
 
+Retry strategy:
+
+```txt
+Business failure -> job failed without retry
+Technical failure -> BullMQ retries up to 3 attempts with exponential backoff
+```
+
+Job status can be inspected with:
+
+```http
+GET /workflow-executions/:id/job
+```
+
 ## Workflow Statuses
 
 ### Workflow Execution Statuses

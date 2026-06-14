@@ -625,6 +625,8 @@ Success response:
     "queueName": "workflow-processing",
     "state": "completed",
     "attemptsMade": 1,
+    "attemptsStarted": 1,
+    "maxAttempts": 3,
     "failedReason": null,
     "processedOn": "2026-06-14T00:00:00.000Z",
     "finishedOn": "2026-06-14T00:00:03.000Z"
@@ -644,12 +646,17 @@ No job found response:
     "queueName": "workflow-processing",
     "state": "not_found",
     "attemptsMade": 0,
+    "attemptsStarted": 0,
+    "maxAttempts": null,
     "failedReason": null,
     "processedOn": null,
     "finishedOn": null
   }
 }
 ```
+
+The API does not expose BullMQ stacktraces. Technical details remain in worker
+logs and queue internals.
 
 ### POST /workflow-executions/:id/enqueue
 

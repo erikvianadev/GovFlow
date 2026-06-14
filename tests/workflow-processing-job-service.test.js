@@ -102,9 +102,11 @@ test("getWorkflowExecutionProcessingJobStatus returns not_found when no queue jo
     executionId: validExecutionId,
     jobId: `workflow-execution-${validExecutionId}`,
     queueName: "workflow-processing",
-    state: "not_found",
-    attemptsMade: 0,
-    failedReason: null,
+      state: "not_found",
+      attemptsMade: 0,
+      attemptsStarted: 0,
+      maxAttempts: null,
+      failedReason: null,
     processedOn: null,
     finishedOn: null,
   });
@@ -116,6 +118,10 @@ test("getWorkflowExecutionProcessingJobStatus returns BullMQ job details", async
       id: `workflow-execution-${validExecutionId}`,
       queueName: "workflow-processing",
       attemptsMade: 1,
+      attemptsStarted: 1,
+      opts: {
+        attempts: 3,
+      },
       failedReason: null,
       processedOn: Date.parse("2026-06-14T00:00:00.000Z"),
       finishedOn: Date.parse("2026-06-14T00:00:03.000Z"),
@@ -133,6 +139,8 @@ test("getWorkflowExecutionProcessingJobStatus returns BullMQ job details", async
     queueName: "workflow-processing",
     state: "completed",
     attemptsMade: 1,
+    attemptsStarted: 1,
+    maxAttempts: 3,
     failedReason: null,
     processedOn: "2026-06-14T00:00:00.000Z",
     finishedOn: "2026-06-14T00:00:03.000Z",
@@ -144,6 +152,10 @@ test("getWorkflowExecutionProcessingJobStatus returns failed job details", async
     job: {
       id: `workflow-execution-${validExecutionId}`,
       attemptsMade: 2,
+      attemptsStarted: 2,
+      opts: {
+        attempts: 3,
+      },
       failedReason: "processor failed",
       processedOn: Date.parse("2026-06-14T00:00:00.000Z"),
       finishedOn: Date.parse("2026-06-14T00:00:03.000Z"),
@@ -157,6 +169,8 @@ test("getWorkflowExecutionProcessingJobStatus returns failed job details", async
 
   assert.strictEqual(result.state, "failed");
   assert.strictEqual(result.attemptsMade, 2);
+  assert.strictEqual(result.attemptsStarted, 2);
+  assert.strictEqual(result.maxAttempts, 3);
   assert.strictEqual(result.failedReason, "processor failed");
   assert.strictEqual(result.queueName, "workflow-processing");
 });

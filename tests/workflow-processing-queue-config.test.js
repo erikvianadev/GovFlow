@@ -26,6 +26,9 @@ test("workflow processing queue defines name and default job options", () => {
   );
   assert.match(queue, /new Queue\(WORKFLOW_PROCESSING_QUEUE_NAME/);
   assert.match(queue, /connection:\s*bullMQConnection/);
+  assert.match(queue, /attempts:\s*3/);
+  assert.match(queue, /type:\s*"exponential"/);
+  assert.match(queue, /delay:\s*3000/);
   assert.match(queue, /buildWorkflowProcessingJobId/);
   assert.match(queue, /removeOnComplete:\s*false/);
   assert.match(queue, /removeOnFail:\s*false/);

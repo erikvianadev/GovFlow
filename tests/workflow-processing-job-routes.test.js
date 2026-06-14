@@ -111,6 +111,8 @@ async function withTestServer(callback, { serviceImpl } = {}) {
         queueName: "workflow-processing",
         state: "not_found",
         attemptsMade: 0,
+        attemptsStarted: 0,
+        maxAttempts: null,
         failedReason: null,
         processedOn: null,
         finishedOn: null,
@@ -246,6 +248,8 @@ test("GET /workflow-executions/:id/job returns not_found when no job exists", as
       queueName: "workflow-processing",
       state: "not_found",
       attemptsMade: 0,
+      attemptsStarted: 0,
+      maxAttempts: null,
       failedReason: null,
       processedOn: null,
       finishedOn: null,
@@ -269,6 +273,8 @@ test("GET /workflow-executions/:id/job returns waiting job status for MANAGER us
       assert.strictEqual(response.status, 200);
       assert.strictEqual(body.data.state, "waiting");
       assert.strictEqual(body.data.attemptsMade, 0);
+      assert.strictEqual(body.data.attemptsStarted, 0);
+      assert.strictEqual(body.data.maxAttempts, 3);
     },
     {
       serviceImpl: async (id) => ({
@@ -277,6 +283,8 @@ test("GET /workflow-executions/:id/job returns waiting job status for MANAGER us
         queueName: "workflow-processing",
         state: "waiting",
         attemptsMade: 0,
+        attemptsStarted: 0,
+        maxAttempts: 3,
         failedReason: null,
         processedOn: null,
         finishedOn: null,
@@ -300,6 +308,7 @@ test("GET /workflow-executions/:id/job returns completed job status", async () =
 
       assert.strictEqual(response.status, 200);
       assert.strictEqual(body.data.state, "completed");
+      assert.strictEqual(body.data.maxAttempts, 3);
       assert.strictEqual(body.data.finishedOn, "2026-06-14T00:00:03.000Z");
     },
     {
@@ -309,6 +318,8 @@ test("GET /workflow-executions/:id/job returns completed job status", async () =
         queueName: "workflow-processing",
         state: "completed",
         attemptsMade: 1,
+        attemptsStarted: 1,
+        maxAttempts: 3,
         failedReason: null,
         processedOn: "2026-06-14T00:00:00.000Z",
         finishedOn: "2026-06-14T00:00:03.000Z",
@@ -332,6 +343,8 @@ test("GET /workflow-executions/:id/job returns failed job status", async () => {
 
       assert.strictEqual(response.status, 200);
       assert.strictEqual(body.data.state, "failed");
+      assert.strictEqual(body.data.attemptsStarted, 1);
+      assert.strictEqual(body.data.maxAttempts, 3);
       assert.strictEqual(body.data.failedReason, "processor failed");
     },
     {
@@ -341,6 +354,8 @@ test("GET /workflow-executions/:id/job returns failed job status", async () => {
         queueName: "workflow-processing",
         state: "failed",
         attemptsMade: 1,
+        attemptsStarted: 1,
+        maxAttempts: 3,
         failedReason: "processor failed",
         processedOn: "2026-06-14T00:00:00.000Z",
         finishedOn: "2026-06-14T00:00:03.000Z",

@@ -70,8 +70,11 @@ function loadWorker({
     }
   }
 
+  class MockUnrecoverableError extends Error {}
+
   mockModule(bullmqPath, {
     Worker: MockWorker,
+    UnrecoverableError: MockUnrecoverableError,
   });
   mockModule(bullmqConfigPath, {
     bullMQConnection,
@@ -90,6 +93,7 @@ function loadWorker({
     workerModule: require(workerPath),
     calls,
     bullMQConnection,
+    MockUnrecoverableError,
   };
 }
 
@@ -147,8 +151,8 @@ test("workflow processing worker calls the processor with executionId and proces
   });
 });
 
-test("workflow processing worker fails the job when the execution fails", async () => {
-  const { workerModule, calls } = loadWorker({
+test("workflow processing worker fails business failures without retry", async () => {
+  const { workerModule, calls, MockUnrecoverableError } = loadWorker({
     processorResult: {
       status: "FAILED",
       result: {
@@ -169,12 +173,14 @@ test("workflow processing worker fails the job when the execution fails", async 
         processedBy: validUserId,
       },
     }),
-    /Simulated async processor failure/
+    (error) =>
+      error instanceof MockUnrecoverableError &&
+      error.message === "Simulated async processor failure"
   );
 });
 
 test("workflow processing worker requires executionId in job data", async () => {
-  const { workerModule, calls } = loadWorker();
+  const { workerModule, calls, MockUnrecoverableError } = loadWorker();
 
   workerModule.createWorkflowProcessingWorker();
 
@@ -185,13 +191,15 @@ test("workflow processing worker requires executionId in job data", async () => 
         processedBy: validUserId,
       },
     }),
-    /Job data must include executionId/
+    (error) =>
+      error instanceof MockUnrecoverableError &&
+      error.message === "Job data must include executionId"
   );
   assert.deepStrictEqual(calls.processors, []);
 });
 
 test("workflow processing worker requires processedBy in job data", async () => {
-  const { workerModule, calls } = loadWorker();
+  const { workerModule, calls, MockUnrecoverableError } = loadWorker();
 
   workerModule.createWorkflowProcessingWorker();
 
@@ -202,7 +210,30 @@ test("workflow processing worker requires processedBy in job data", async () => 
         executionId: validExecutionId,
       },
     }),
-    /Job data must include processedBy/
+    (error) =>
+      error instanceof MockUnrecoverableError &&
+      error.message === "Job data must include processedBy"
+  );
+  assert.deepStrictEqual(calls.processors, []);
+});
+
+test("workflow processing worker uses retryable errors for technical failures", async () => {
+  const { workerModule, calls, MockUnrecoverableError } = loadWorker();
+
+  workerModule.createWorkflowProcessingWorker();
+
+  await assert.rejects(
+    calls.workers[0].processor({
+      id: "job-1",
+      data: {
+        executionId: validExecutionId,
+        processedBy: validUserId,
+        simulateTechnicalFailure: true,
+      },
+    }),
+    (error) =>
+      !(error instanceof MockUnrecoverableError) &&
+      error.message === "Simulated technical failure"
   );
   assert.deepStrictEqual(calls.processors, []);
 });
