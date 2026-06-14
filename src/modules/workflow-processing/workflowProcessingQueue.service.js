@@ -7,14 +7,14 @@ const {
   validateWorkflowExecutionId,
 } = require("../../validators/workflowExecutions.validator");
 
-async function enqueueWorkflowExecutionProcessing({ executionId, requestedBy }) {
+async function enqueueWorkflowExecutionProcessing({ executionId, processedBy }) {
   const validationErrors = validateWorkflowExecutionId(executionId);
 
   if (validationErrors.length > 0) {
     throw new AppError("Validation failed", 400, validationErrors);
   }
 
-  if (!requestedBy) {
+  if (!processedBy) {
     throw new AppError("Authenticated user is required", 401);
   }
 
@@ -32,7 +32,7 @@ async function enqueueWorkflowExecutionProcessing({ executionId, requestedBy }) 
     "process-workflow-execution",
     {
       executionId,
-      requestedBy,
+      processedBy,
     },
     {
       jobId: `workflow-execution-${executionId}`,

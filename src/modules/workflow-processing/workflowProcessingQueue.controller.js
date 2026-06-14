@@ -6,7 +6,7 @@ const enqueue = asyncHandler(async (req, res) => {
   const result =
     await workflowProcessingQueueService.enqueueWorkflowExecutionProcessing({
       executionId: req.params.id,
-      requestedBy: req.user.id,
+      processedBy: req.user.id,
     });
 
   return successResponse(res, {

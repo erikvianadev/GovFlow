@@ -73,7 +73,7 @@ test("enqueueWorkflowExecutionProcessing validates execution IDs", async () => {
   await assert.rejects(
     service.enqueueWorkflowExecutionProcessing({
       executionId: "not-a-uuid",
-      requestedBy: validUserId,
+      processedBy: validUserId,
     }),
     (error) =>
       error.statusCode === 400 && error.message === "Validation failed"
@@ -101,7 +101,7 @@ test("enqueueWorkflowExecutionProcessing returns 404 for missing executions", as
   await assert.rejects(
     service.enqueueWorkflowExecutionProcessing({
       executionId: validExecutionId,
-      requestedBy: validUserId,
+      processedBy: validUserId,
     }),
     (error) =>
       error.statusCode === 404 &&
@@ -121,7 +121,7 @@ test("enqueueWorkflowExecutionProcessing blocks non-pending executions", async (
   await assert.rejects(
     service.enqueueWorkflowExecutionProcessing({
       executionId: validExecutionId,
-      requestedBy: validUserId,
+      processedBy: validUserId,
     }),
     (error) =>
       error.statusCode === 409 &&
@@ -134,7 +134,7 @@ test("enqueueWorkflowExecutionProcessing adds a workflow processing job", async 
 
   const result = await service.enqueueWorkflowExecutionProcessing({
     executionId: validExecutionId,
-    requestedBy: validUserId,
+    processedBy: validUserId,
   });
 
   assert.deepStrictEqual(calls.queueAdds, [
@@ -142,7 +142,7 @@ test("enqueueWorkflowExecutionProcessing adds a workflow processing job", async 
       name: "process-workflow-execution",
       data: {
         executionId: validExecutionId,
-        requestedBy: validUserId,
+        processedBy: validUserId,
       },
       options: {
         jobId: `workflow-execution-${validExecutionId}`,

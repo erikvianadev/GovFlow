@@ -176,7 +176,7 @@ test("POST /workflow-executions/:id/enqueue accepts ADMIN users", async () => {
     assert.deepStrictEqual(enqueueCalls, [
       {
         executionId,
-        requestedBy: adminUser.id,
+        processedBy: adminUser.id,
       },
     ]);
   });
@@ -198,7 +198,7 @@ test("POST /workflow-executions/:id/enqueue accepts MANAGER users", async () => 
     assert.deepStrictEqual(enqueueCalls, [
       {
         executionId,
-        requestedBy: managerUser.id,
+        processedBy: managerUser.id,
       },
     ]);
   });
