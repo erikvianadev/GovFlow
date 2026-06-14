@@ -16,6 +16,18 @@ function requireEnv(name) {
   return value;
 }
 
+// Parse a comma-separated environment variable into a trimmed, non-empty list.
+function parseList(value, fallback = []) {
+  if (value === undefined || value === null || value.trim() === "") {
+    return fallback;
+  }
+
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
 // Resolve and validate NODE_ENV. Defaults to "production" (the safe default),
 // so a misconfigured deployment never silently leaks development error details.
 function resolveNodeEnv() {
@@ -35,6 +47,14 @@ const env = {
   app: {
     port: Number(process.env.PORT) || 3000, // Use PORT from environment variables or default to 3000
     nodeEnv: resolveNodeEnv(), // Validated NODE_ENV with a safe default
+    corsOrigins: parseList(process.env.CORS_ORIGINS, ["http://localhost:3000"]), // Allowlisted CORS origins
+  },
+
+  rateLimit: { // Rate limiting configuration with safe defaults
+    login: {
+      windowMs: Number(process.env.LOGIN_RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+      max: Number(process.env.LOGIN_RATE_LIMIT_MAX) || 10,
+    },
   },
 
   database: { // database configuration, all values are required
