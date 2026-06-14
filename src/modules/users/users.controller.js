@@ -38,6 +38,7 @@ const create = asyncHandler(async (req, res) => {
     password: req.body.password,
     role: req.body.role,
     departmentId: req.body.departmentId,
+    createdBy: req.user.id,
   });
 
   return createdResponse(res, {

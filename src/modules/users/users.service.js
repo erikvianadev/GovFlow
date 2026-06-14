@@ -83,6 +83,7 @@ async function createUser({
   password,
   role,
   departmentId = null,
+  createdBy = null,
 }) {
   const validationErrors = validateCreateUser({
     name,
@@ -128,7 +129,7 @@ async function createUser({
       action: "USER_CREATED",
       entity: "user",
       entityId: createdUser.id,
-      actorId: null,
+      actorId: createdBy,
       metadata: {
         email: createdUser.email,
         role: createdUser.role,

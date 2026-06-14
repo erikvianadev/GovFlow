@@ -63,7 +63,7 @@ async function getDepartmentById(id) {
   return department;
 }
 
-async function createDepartment({ name, description = null }) {
+async function createDepartment({ name, description = null, createdBy = null }) {
   const validationErrors = validateCreateDepartment({
     name,
     description,
@@ -93,7 +93,7 @@ async function createDepartment({ name, description = null }) {
       action: "DEPARTMENT_CREATED",
       entity: "department",
       entityId: createdDepartment.id,
-      actorId: null,
+      actorId: createdBy,
       metadata: {
         name: createdDepartment.name,
       },
