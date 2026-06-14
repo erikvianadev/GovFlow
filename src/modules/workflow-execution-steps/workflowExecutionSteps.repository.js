@@ -100,8 +100,40 @@ async function updateStatus(
   return result.rows[0];
 }
 
+async function failRunningByExecutionId(
+  { executionId, errorMessage },
+  db = database
+) {
+  const result = await db.query(
+    `
+      UPDATE workflow_execution_steps
+      SET
+        status = 'FAILED',
+        completed_at = NOW(),
+        error_message = $2,
+        updated_at = NOW()
+      WHERE execution_id = $1
+        AND status = 'RUNNING'
+      RETURNING
+        id,
+        execution_id,
+        step_id,
+        status,
+        started_at,
+        completed_at,
+        error_message,
+        created_at,
+        updated_at
+    `,
+    [executionId, errorMessage]
+  );
+
+  return result.rows;
+}
+
 module.exports = {
   createMany,
   findByExecutionId,
   updateStatus,
+  failRunningByExecutionId,
 };

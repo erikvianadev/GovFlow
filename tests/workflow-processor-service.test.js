@@ -54,12 +54,21 @@ function loadService({
     },
   ],
   handlerImpl,
+  claimable = true,
+  concurrentlyFinalized = false,
+  postFinalizeExecution = {
+    id: validExecutionId,
+    workflow_id: "workflow-1",
+    status: "FAILED",
+    result: { recoveryReason: "Execution timed out while running" },
+  },
 } = {}) {
   const trx = {
     query: async () => ({ rows: [] }),
   };
   const calls = {
     audit: [],
+    claims: [],
     executionUpdates: [],
     stepUpdates: [],
   };
@@ -72,11 +81,41 @@ function loadService({
     workflowStepHandlersPath,
   ].forEach((modulePath) => delete require.cache[modulePath]);
 
+  let findByIdCalls = 0;
+
   mockModule(workflowExecutionsRepositoryPath, {
-    findById: async () => execution,
-    updateStatus: async (payload, db) => {
+    findById: async () => {
+      findByIdCalls += 1;
+
+      // The first lookup resolves the execution to process; later lookups
+      // reflect any state set concurrently (e.g. by the stale recovery).
+      if (findByIdCalls === 1) {
+        return execution;
+      }
+
+      return postFinalizeExecution;
+    },
+    claimPendingExecution: async (payload, db) => {
+      assert.strictEqual(db, undefined);
+      calls.claims.push(payload);
+
+      if (!claimable) {
+        return undefined;
+      }
+
+      return {
+        id: payload.id,
+        workflow_id: execution ? execution.workflow_id : "workflow-1",
+        status: "RUNNING",
+      };
+    },
+    finalizeRunningExecution: async (payload, db) => {
       assert.strictEqual(db, undefined);
       calls.executionUpdates.push(payload);
+
+      if (concurrentlyFinalized) {
+        return undefined;
+      }
 
       return {
         id: payload.id,
@@ -183,6 +222,27 @@ test("processWorkflowExecution blocks executions without steps", async () => {
   );
 });
 
+test("processWorkflowExecution returns 409 when the execution is already claimed", async () => {
+  const { service, calls } = loadService({
+    claimable: false,
+  });
+
+  await assert.rejects(
+    service.processWorkflowExecution({
+      executionId: validExecutionId,
+      processedBy: validUserId,
+    }),
+    (error) =>
+      error.statusCode === 409 &&
+      error.message === "Only PENDING workflow executions can be processed"
+  );
+
+  assert.strictEqual(calls.claims.length, 1);
+  assert.strictEqual(calls.executionUpdates.length, 0);
+  assert.strictEqual(calls.stepUpdates.length, 0);
+  assert.strictEqual(calls.audit.length, 0);
+});
+
 test("processWorkflowExecution processes steps in order and completes the execution", async () => {
   const { service, calls } = loadService();
 
@@ -191,17 +251,19 @@ test("processWorkflowExecution processes steps in order and completes the execut
     processedBy: validUserId,
   });
 
+  assert.strictEqual(calls.claims.length, 1);
+  assert.strictEqual(calls.claims[0].id, validExecutionId);
   assert.deepStrictEqual(
     calls.executionUpdates.map((update) => update.status),
-    ["RUNNING", "COMPLETED"]
+    ["COMPLETED"]
   );
   assert.deepStrictEqual(
     calls.stepUpdates.map((update) => update.status),
     ["RUNNING", "COMPLETED", "RUNNING", "COMPLETED"]
   );
-  assert.strictEqual(calls.executionUpdates[1].result.stepsProcessed, 2);
+  assert.strictEqual(calls.executionUpdates.at(-1).result.stepsProcessed, 2);
   assert.deepStrictEqual(
-    calls.executionUpdates[1].result.steps.map((step) => step.stepOrder),
+    calls.executionUpdates.at(-1).result.steps.map((step) => step.stepOrder),
     [1, 2]
   );
   assert.deepStrictEqual(
@@ -253,6 +315,29 @@ test("processWorkflowExecution returns a failed execution when a handler fails",
     [
       "WORKFLOW_EXECUTION_PROCESS_STARTED",
       "WORKFLOW_EXECUTION_PROCESS_FAILED",
+    ]
+  );
+});
+
+test("processWorkflowExecution does not overwrite an execution finalized concurrently", async () => {
+  const { service, calls } = loadService({
+    concurrentlyFinalized: true,
+  });
+
+  const result = await service.processWorkflowExecution({
+    executionId: validExecutionId,
+    processedBy: validUserId,
+  });
+
+  // The guarded finalize matched no rows, so the worker reports the existing
+  // terminal state (recovered as FAILED) instead of forcing it to COMPLETED.
+  assert.strictEqual(result.status, "FAILED");
+  assert.strictEqual(calls.executionUpdates.at(-1).status, "COMPLETED");
+  assert.deepStrictEqual(
+    calls.audit.map((entry) => entry.action),
+    [
+      "WORKFLOW_EXECUTION_PROCESS_STARTED",
+      "WORKFLOW_EXECUTION_PROCESS_SKIPPED",
     ]
   );
 });

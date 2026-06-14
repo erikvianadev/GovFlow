@@ -63,10 +63,32 @@ Authorization: Bearer <accessToken>
 
 ### GET /health
 
-Checks API and database status. This public endpoint records a
-`HEALTH_CHECK_EXECUTED` audit log with the database status in its metadata.
+Checks API, PostgreSQL, and Redis status. This public endpoint records a
+`HEALTH_CHECK_EXECUTED` audit log with the database and Redis status in its
+metadata.
+
+The overall `status` is `ok` only when both PostgreSQL and Redis are reachable;
+otherwise it reports `degraded` instead of crashing the API.
 
 Access: public.
+
+Example response:
+
+```json
+{
+  "success": true,
+  "message": "Health status retrieved successfully",
+  "data": {
+    "status": "ok",
+    "service": "GovFlow API",
+    "timestamp": "2026-06-14T00:00:00.000Z",
+    "services": {
+      "database": { "status": "ok" },
+      "redis": { "status": "ok" }
+    }
+  }
+}
+```
 
 ## Authentication
 
@@ -536,7 +558,7 @@ Validation rules:
 
 ### POST /workflow-executions/:id/process
 
-Processes a pending workflow execution synchronously.
+Queues a pending workflow execution for asynchronous processing.
 
 Access: ADMIN, MANAGER.
 
@@ -550,8 +572,209 @@ Behavior:
 
 - validates the execution ID
 - requires the execution to be `PENDING`
+- creates a BullMQ job in the workflow processing queue
+- returns `202 Accepted` immediately with status `QUEUED`
+- worker consumes the job later
+- worker calls the internal workflow processor
+- execution can then move through `RUNNING` to `COMPLETED` or `FAILED`
+
+Success response:
+
+Status: `202 Accepted`
+
+```json
+{
+  "success": true,
+  "message": "Workflow execution processing job queued successfully",
+  "data": {
+    "jobId": "workflow-execution-uuid",
+    "queueName": "workflow-processing",
+    "executionId": "uuid",
+    "status": "QUEUED"
+  }
+}
+```
+
+Clients should follow processing progress with:
+
+```http
+GET /workflow-executions/:id
+GET /workflow-executions/:executionId/steps
+GET /workflow-executions/:id/job
+```
+
+### GET /workflow-executions/:id/job
+
+Returns BullMQ job observability for the workflow execution processing job.
+
+Access: ADMIN, MANAGER.
+
+Headers:
+
+```http
+Authorization: Bearer <accessToken>
+```
+
+Behavior:
+
+- validates the execution ID
+- requires the workflow execution to exist
+- uses deterministic job ID `workflow-execution-<executionId>`
+- returns BullMQ job state when the job exists
+- returns state `not_found` when the execution exists but the queue job does not
+
+Possible states:
+
+```txt
+waiting
+active
+completed
+failed
+delayed
+paused
+not_found
+```
+
+Success response:
+
+```json
+{
+  "success": true,
+  "message": "Workflow execution job status retrieved successfully",
+  "data": {
+    "executionId": "uuid",
+    "jobId": "workflow-execution-uuid",
+    "queueName": "workflow-processing",
+    "state": "completed",
+    "attemptsMade": 1,
+    "attemptsStarted": 1,
+    "maxAttempts": 3,
+    "failedReason": null,
+    "processedOn": "2026-06-14T00:00:00.000Z",
+    "finishedOn": "2026-06-14T00:00:03.000Z"
+  }
+}
+```
+
+No job found response:
+
+```json
+{
+  "success": true,
+  "message": "Workflow execution job status retrieved successfully",
+  "data": {
+    "executionId": "uuid",
+    "jobId": "workflow-execution-uuid",
+    "queueName": "workflow-processing",
+    "state": "not_found",
+    "attemptsMade": 0,
+    "attemptsStarted": 0,
+    "maxAttempts": null,
+    "failedReason": null,
+    "processedOn": null,
+    "finishedOn": null
+  }
+}
+```
+
+The API does not expose BullMQ stacktraces. Technical details remain in worker
+logs and queue internals.
+
+### POST /workflow-executions/:id/enqueue
+
+Temporary alias for `POST /workflow-executions/:id/process`.
+
+Access: ADMIN, MANAGER.
+
+Behavior and response are the same as `/process`. New clients should prefer
+`/process`.
+
+### POST /workflow-executions/recovery/stale-running
+
+Recovers stale workflow executions that stayed `RUNNING` longer than the
+configured timeout.
+
+Access: ADMIN.
+
+Headers:
+
+```http
+Authorization: Bearer <accessToken>
+```
+
+Optional body:
+
+```json
+{
+  "timeoutMinutes": 30,
+  "limit": 100
+}
+```
+
+Both fields are optional. When provided, each must be a positive integer, and
+`limit` must not exceed `100`. Invalid values are rejected with
+`400 Validation failed` (they are not silently coerced to defaults).
+
+Behavior:
+
+- uses `WORKFLOW_EXECUTION_RUNNING_TIMEOUT_MINUTES` when `timeoutMinutes` is not
+  provided
+- finds `RUNNING` executions whose `started_at` is older than the timeout
+- marks currently `RUNNING` steps as `FAILED`
+- preserves steps already `COMPLETED`
+- preserves later steps still `PENDING`
+- marks the execution as `FAILED` with a single guarded write that only applies
+  while the execution is still `RUNNING`
+- stores `result.recoveryReason = "Execution timed out while running"`
+- registers `WORKFLOW_EXECUTION_RECOVERY_FAILED`
+
+The recovery and a still-alive worker can no longer overwrite each other: the
+final state transition is guarded on the `RUNNING` status, so whichever actor
+finalizes the execution first wins, and the other observes the already-terminal
+state instead of clobbering it.
+
+Success response:
+
+```json
+{
+  "success": true,
+  "message": "Stale running workflow executions recovered successfully",
+  "data": {
+    "timeoutMinutes": 30,
+    "scannedCount": 1,
+    "recoveredCount": 1,
+    "recoveredExecutions": [
+      {
+        "id": "uuid",
+        "workflowId": "uuid",
+        "status": "FAILED",
+        "startedAt": "2026-06-14T00:00:00.000Z",
+        "completedAt": "2026-06-14T00:31:00.000Z",
+        "failedRunningStepsCount": 1,
+        "recoveryReason": "Execution timed out while running"
+      }
+    ]
+  }
+}
+```
+
+Manual recovery can also be run inside the API environment:
+
+```bash
+npm run workflow:recover-stale
+```
+
+## Internal Workflow Processor
+
+The workflow processor is now called by the worker, not by the public
+`/process` endpoint.
+
+Internal behavior:
+
+- validates the execution ID
+- requires the execution to be `PENDING`
 - loads execution steps
-- marks the execution as `RUNNING`
+- atomically claims the execution as `RUNNING`
 - processes steps in `step_order ASC`
 - marks each step as `RUNNING`
 - marks successful steps as `COMPLETED`
@@ -559,12 +782,12 @@ Behavior:
 - marks the failing step as `FAILED` if a step fails
 - marks the execution as `FAILED` if any step fails
 
-Success response:
+Completed execution shape:
 
 ```json
 {
   "success": true,
-  "message": "Workflow execution processed successfully",
+  "message": "Workflow execution retrieved successfully",
   "data": {
     "id": "uuid",
     "workflow_id": "uuid",
@@ -582,7 +805,7 @@ Success response:
           "output": {
             "simulated": true,
             "actionType": "MANUAL",
-            "message": "Manual step completed by synchronous processor simulation"
+            "message": "Manual step completed by processor simulation"
           }
         }
       ]
@@ -591,15 +814,15 @@ Success response:
 }
 ```
 
-Controlled failure response:
+Controlled failure shape:
 
-A workflow processing failure is returned as HTTP `200` with business status
-`FAILED`.
+A workflow processing failure is reflected on the execution resource as
+business status `FAILED`.
 
 ```json
 {
   "success": true,
-  "message": "Workflow execution processed successfully",
+  "message": "Workflow execution retrieved successfully",
   "data": {
     "id": "uuid",
     "status": "FAILED",
@@ -659,6 +882,7 @@ Audit events:
 - `WORKFLOW_EXECUTION_PROCESS_STARTED`
 - `WORKFLOW_EXECUTION_PROCESS_COMPLETED`
 - `WORKFLOW_EXECUTION_PROCESS_FAILED`
+- `WORKFLOW_EXECUTION_RECOVERY_FAILED`
 
 ## RBAC Summary
 

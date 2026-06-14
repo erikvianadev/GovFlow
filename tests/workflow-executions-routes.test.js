@@ -29,6 +29,11 @@ test("workflow executions routes are configured as nested and global routes", ()
     /roleMiddleware\(\["ADMIN", "MANAGER", "OPERATOR"\]\)/
   );
   assert.match(globalRoutes, /router\.get\(\s*"\/"/);
+  assert.match(globalRoutes, /router\.get\(\s*"\/:id\/job"/);
+  assert.match(
+    globalRoutes,
+    /workflowProcessingJobController\.getByExecutionId/
+  );
   assert.match(globalRoutes, /router\.get\(\s*"\/:id"/);
   assert.match(globalRoutes, /roleMiddleware\(\["ADMIN", "MANAGER"\]\)/);
   assert.match(
@@ -48,4 +53,11 @@ test("workflow executions routes are configured as nested and global routes", ()
   assert.notStrictEqual(nestedRouteIndex, -1);
   assert.notStrictEqual(getByIdRouteIndex, -1);
   assert.ok(nestedRouteIndex < getByIdRouteIndex);
+
+  const jobRouteIndex = globalRoutes.indexOf('router.get(\n  "/:id/job"');
+  const globalGetByIdRouteIndex = globalRoutes.indexOf('router.get(\n  "/:id"');
+
+  assert.notStrictEqual(jobRouteIndex, -1);
+  assert.notStrictEqual(globalGetByIdRouteIndex, -1);
+  assert.ok(jobRouteIndex < globalGetByIdRouteIndex);
 });

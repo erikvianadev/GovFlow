@@ -2,6 +2,8 @@ const { Router } = require("express");
 
 const workflowExecutionsController = require("./workflowExecutions.controller");
 const workflowExecutionStepsRoutes = require("../workflow-execution-steps/workflowExecutionSteps.routes");
+const workflowProcessingJobController = require("../workflow-processing/workflowProcessingJob.controller");
+const workflowExecutionRecoveryController = require("../workflow-processing/workflowExecutionRecovery.controller");
 const authMiddleware = require("../../middlewares/auth.middleware");
 const roleMiddleware = require("../../middlewares/role.middleware");
 
@@ -15,6 +17,20 @@ router.get(
 );
 
 router.use("/:executionId/steps", workflowExecutionStepsRoutes);
+
+router.post(
+  "/recovery/stale-running",
+  authMiddleware,
+  roleMiddleware(["ADMIN"]),
+  workflowExecutionRecoveryController.recoverStaleRunning
+);
+
+router.get(
+  "/:id/job",
+  authMiddleware,
+  roleMiddleware(["ADMIN", "MANAGER"]),
+  workflowProcessingJobController.getByExecutionId
+);
 
 router.get(
   "/:id",

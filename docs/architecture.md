@@ -84,7 +84,9 @@ src/modules/
 
 ### Health Module
 
-Checks API and database status and records each health check as an audit log.
+Checks API, PostgreSQL, and Redis status and records each health check as an
+audit log. The overall status is `ok` only when both PostgreSQL and Redis are
+reachable; otherwise it reports `degraded`.
 
 ### Audit Logs Module
 
@@ -153,11 +155,18 @@ Important rules:
 
 ### Workflow Processing Module
 
-Processes pending workflow executions synchronously.
+Queues pending workflow executions and processes them asynchronously through a
+worker.
 
 Important rules:
 
-- only `PENDING` executions can be processed.
+- `POST /workflow-executions/:id/process` is the official async processing endpoint.
+- `POST /workflow-executions/:id/enqueue` remains as a temporary alias.
+- only `PENDING` executions can be queued.
+- the API adds a BullMQ job and returns `202 Accepted` with status `QUEUED`.
+- the worker consumes jobs from Redis.
+- the worker calls the internal workflow processor.
+- `GET /workflow-executions/:id/job` exposes queue job state for observability.
 - execution status moves to `RUNNING` before step processing.
 - steps are processed in `step_order ASC`.
 - successful steps move to `COMPLETED`.
@@ -165,6 +174,8 @@ Important rules:
 - previous steps remain `COMPLETED`.
 - later steps remain `PENDING`.
 - execution ends as `COMPLETED` or `FAILED`.
+- stale `RUNNING` executions can be recovered by an ADMIN endpoint or manual
+  script.
 
 ## Workflow Domain Model
 
@@ -210,6 +221,10 @@ Processing flow:
 POST /workflow-executions/:id/process
   -> Validate execution
   -> Ensure execution is PENDING
+  -> Add workflow processing job to BullMQ
+  -> Return 202 Accepted with status QUEUED
+  -> Worker consumes job
+  -> Worker calls workflowProcessor.service
   -> Load workflow_execution_steps
   -> Set execution RUNNING
   -> For each step ordered by step_order ASC:
@@ -221,7 +236,56 @@ POST /workflow-executions/:id/process
 
 ## Workflow Processing Architecture
 
-GovFlow currently uses a synchronous workflow processor.
+GovFlow uses asynchronous workflow processing as the public API contract.
+
+Architecture:
+
+```txt
+Client
+  -> API
+  -> BullMQ Queue
+  -> Redis
+  -> Worker
+  -> Workflow Processor
+  -> PostgreSQL
+```
+
+Queue observability:
+
+```txt
+GET /workflow-executions/:id/job
+  -> Validate execution
+  -> Ensure workflow_execution exists
+  -> Build job ID workflow-execution-<executionId>
+  -> Read BullMQ job
+  -> Return waiting | active | completed | failed | delayed | paused | not_found
+```
+
+Completed jobs are retained in the queue so the API can report `completed`
+instead of immediately returning `not_found`.
+
+## Retry Strategy
+
+GovFlow distinguishes business failures from technical failures.
+
+Business failures are expected workflow outcomes, such as a step failing
+validation. They mark the workflow execution as `FAILED` and fail the BullMQ job
+with `UnrecoverableError`, so BullMQ does not retry the job unnecessarily.
+
+Technical failures are unexpected infrastructure or runtime errors. They are
+thrown as normal errors so BullMQ can retry the job according to the queue
+configuration.
+
+Current retry strategy:
+
+- attempts: 3
+- backoff: exponential
+- delay: 3000ms
+- removeOnComplete: false
+- removeOnFail: false
+
+The public job status endpoint exposes retry counters and failure reason, but
+does not expose job stacktraces.
 
 Current creation flow:
 
@@ -240,6 +304,9 @@ Current processing flow:
 POST /workflow-executions/:id/process
   -> Validate execution
   -> Ensure execution is PENDING
+  -> Enqueue workflow-processing job
+  -> Return 202 Accepted
+  -> Worker receives job
   -> Load workflow_execution_steps
   -> Set execution RUNNING
   -> For each step ordered by step_order ASC:
@@ -248,6 +315,46 @@ POST /workflow-executions/:id/process
        set step COMPLETED or FAILED
   -> Set execution COMPLETED or FAILED
 ```
+
+## Worker Recovery
+
+GovFlow detects workflow executions that were claimed by a worker but stayed
+`RUNNING` longer than `WORKFLOW_EXECUTION_RUNNING_TIMEOUT_MINUTES`.
+
+Recovery flow:
+
+```txt
+RUNNING execution older than timeout
+  -> Mark RUNNING execution steps as FAILED
+  -> Preserve previously COMPLETED steps
+  -> Preserve later PENDING steps
+  -> Mark execution as FAILED (single guarded write, only while RUNNING)
+  -> Set result.recoveryReason = "Execution timed out while running"
+  -> Register WORKFLOW_EXECUTION_RECOVERY_FAILED audit log
+```
+
+Each execution is recovered inside a single transaction: the RUNNING steps are
+failed first, then the execution is failed with one guarded update
+(`WHERE status = 'RUNNING'`) that also writes the complete recovery result. If
+that guarded update matches no rows (another recovery run or a live worker
+already finalized the execution), the transaction is rolled back and the row is
+skipped, so step failures are never committed under an execution this run did
+not finalize.
+
+Worker finalization (`COMPLETED`/`FAILED`) is guarded the same way. A worker
+that is alive but slower than the timeout therefore cannot resurrect an
+execution the recovery already failed: its guarded finalize matches no rows and
+it reports the existing terminal state instead.
+
+Recovery can be triggered through:
+
+```txt
+POST /workflow-executions/recovery/stale-running
+npm run workflow:recover-stale
+```
+
+The endpoint is ADMIN-only. The script uses the same service path and is meant
+for manual operational recovery.
 
 ## Workflow Step Handlers
 
@@ -407,6 +514,7 @@ Current route access policy:
 | Workflow executions read | yes | yes | no |
 | Workflow execution steps read | yes | yes | no |
 | Workflow processing | yes | yes | no |
+| Workflow stale recovery | yes | no | no |
 
 OPERATOR can start workflow executions because that role represents operational
 users who trigger processes. OPERATOR cannot administer workflows, define
@@ -610,7 +718,14 @@ WORKFLOW_EXECUTION_CREATED
 WORKFLOW_EXECUTION_PROCESS_STARTED
 WORKFLOW_EXECUTION_PROCESS_COMPLETED
 WORKFLOW_EXECUTION_PROCESS_FAILED
+WORKFLOW_EXECUTION_PROCESS_SKIPPED
+WORKFLOW_EXECUTION_RECOVERY_FAILED
 ```
+
+`WORKFLOW_EXECUTION_PROCESS_SKIPPED` is recorded when the worker reaches
+finalization but the execution already left `RUNNING` (for example, it was
+recovered as `FAILED`); the worker reports the existing terminal state instead
+of overwriting it.
 
 Audit registration in domain services uses `safeRegisterAuditLog`, so a failure
 to write an audit log does not break the primary business operation.
@@ -708,6 +823,7 @@ The current automated tests cover:
 - workflow processor service behavior
 - workflow step handler behavior
 - controlled workflow processing failures
+- stale `RUNNING` execution recovery
 
 Useful commands:
 
@@ -717,9 +833,9 @@ docker exec govflow_api npm test
 docker exec govflow_api npm run db:migrate
 ```
 
-Manual validation during Sprint 4 also covered Docker migrations, HTTP
-scenarios for workflow execution creation, execution step listing, synchronous
-processing, controlled failures, RBAC, filters, lookup by ID, and audit log
+Manual validation also covered Docker migrations, HTTP scenarios for workflow
+execution creation, execution step listing, asynchronous processing through the
+worker, controlled failures, RBAC, filters, lookup by ID, and audit log
 creation.
 
 ## Current Trade-offs
@@ -764,29 +880,28 @@ Future evolution:
 - Token versioning.
 - Redis-backed session or revocation strategy.
 
-### Synchronous Workflow Processing
+### Asynchronous Workflow Processing
 
-Workflow processing currently runs inside the API process.
+Workflow processing is exposed as an asynchronous API contract.
 
 Reasons:
 
-- Prove the execution lifecycle before adding queue infrastructure.
-- Keep behavior easy to inspect while the domain is still evolving.
-- Avoid Jira, email, webhook, and worker complexity before the processor
-  contract is stable.
+- Avoid long-running work inside the API request lifecycle.
+- Keep `/process` focused on the business intent while BullMQ and Redis handle
+  execution handoff.
+- Keep processing rules centralized in `workflowProcessor.service`, which is
+  called by the worker.
 
 Trade-offs:
 
-- Processing is not asynchronous yet.
-- A process crash can leave an execution in `RUNNING`.
-- There is no retry or timeout recovery yet.
+- Clients must poll `GET /workflow-executions/:id` and
+  `GET /workflow-executions/:executionId/steps` for progress.
+- Clients must trigger recovery through the ADMIN endpoint or manual script;
+  automatic scheduled recovery is not implemented yet.
 
 Future evolution:
 
-- Redis
-- BullMQ or another queue
-- Dedicated worker process
-- Retry strategy
+- Automatic scheduled recovery
 - Jira transition/comment integration
 - Notification dispatch
 - Step execution logs
@@ -804,17 +919,20 @@ A structured logger or OpenTelemetry may be introduced later.
 
 ## Future Architecture Evolution
 
+Redis, BullMQ, background jobs, the retry strategy, and stale `RUNNING`
+execution recovery were delivered in Sprint 5.
+
 Planned improvements:
 
 ```txt
 TypeScript
 Prisma
-Redis
-BullMQ
-Background jobs
-Retry strategy
-RUNNING execution recovery
 Jira integration
+Real workflow step handlers
+External API timeout handling
+Worker metrics
+Queue dashboard / admin tooling
+Automatic scheduled recovery
 Workflow execution step logs
 Domain events
 Frontend dashboard
@@ -823,21 +941,20 @@ Deployment pipeline
 
 ## Future Processing Evolution
 
-The current processor is synchronous and runs inside the API process.
-
-This is intentional for the current sprint.
+The public processing contract is asynchronous. The processor remains an
+internal service used by the worker.
 
 Future evolution:
 
 ```txt
-Synchronous processor
-  -> Redis
+API /process
   -> BullMQ
-  -> Background worker
+  -> Worker
+  -> Processor service
   -> Retry strategy
   -> Jira integration
   -> Step execution logs
 ```
 
-The current implementation proves the processing lifecycle before introducing
-queue infrastructure.
+The current implementation proves the queue-to-worker lifecycle before adding
+production retry, timeout recovery, and external integrations.

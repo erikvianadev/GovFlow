@@ -128,3 +128,43 @@ test("updateStatus updates workflow execution step lifecycle fields and clears e
   assert.strictEqual(updated.status, "COMPLETED");
   assert.strictEqual(updated.error_message, null);
 });
+
+test("failRunningByExecutionId fails only RUNNING steps for an execution", async () => {
+  let capturedSql;
+  let capturedValues;
+  const db = {
+    query: async (sql, values) => {
+      capturedSql = sql.replace(/\s+/g, " ").trim().toLowerCase();
+      capturedValues = values;
+      return {
+        rows: [
+          {
+            id: "execution-step-1",
+            execution_id: "execution-1",
+            status: "FAILED",
+            error_message: values[1],
+          },
+        ],
+      };
+    },
+  };
+
+  const result = await repository.failRunningByExecutionId(
+    {
+      executionId: "execution-1",
+      errorMessage: "Execution timed out while running",
+    },
+    db
+  );
+
+  assert.match(
+    capturedSql,
+    /update workflow_execution_steps set status = 'failed', completed_at = now\(\), error_message = \$2, updated_at = now\(\) where execution_id = \$1 and status = 'running' returning/
+  );
+  assert.deepStrictEqual(capturedValues, [
+    "execution-1",
+    "Execution timed out while running",
+  ]);
+  assert.strictEqual(result.length, 1);
+  assert.strictEqual(result[0].status, "FAILED");
+});

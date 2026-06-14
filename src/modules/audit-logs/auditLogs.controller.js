@@ -23,11 +23,11 @@ const list = asyncHandler(async (req, res) => {
 });
 
 const create = asyncHandler(async (req, res) => {
-  const auditLog = await auditLogsService.register({
+  const auditLog = await auditLogsService.registerManual({
     action: req.body.action,
     entity: req.body.entity,
     entityId: req.body.entityId,
-    actorId: req.body.actorId,
+    actorId: req.user.id,
     metadata: req.body.metadata,
   });
 

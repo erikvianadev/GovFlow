@@ -133,20 +133,16 @@ async function create({ workflowId, startedBy, input = null }, db = database) {
   return result.rows[0];
 }
 
-async function updateStatus(
-  { id, status, startedAt = null, completedAt = null, result = null },
-  db = database
-) {
-  const resultQuery = await db.query(
+async function claimPendingExecution({ id }, db = database) {
+  const result = await db.query(
     `
       UPDATE workflow_executions
       SET
-        status = $2,
-        started_at = COALESCE($3, started_at),
-        completed_at = COALESCE($4, completed_at),
-        result = COALESCE($5, result),
+        status = 'RUNNING',
+        started_at = COALESCE(started_at, NOW()),
         updated_at = NOW()
       WHERE id = $1
+        AND status = 'PENDING'
       RETURNING
         id,
         workflow_id,
@@ -159,10 +155,107 @@ async function updateStatus(
         created_at,
         updated_at
     `,
-    [id, status, startedAt, completedAt, result]
+    [id]
+  );
+
+  return result.rows[0];
+}
+
+// Finalize a workflow execution into a terminal state, but only while it is
+// still RUNNING. The status guard prevents a slow-but-alive worker from
+// overwriting a state already set by the stale-running recovery (or vice
+// versa): once an execution leaves RUNNING, this update matches no rows.
+async function finalizeRunningExecution(
+  { id, status, result = null },
+  db = database
+) {
+  const resultQuery = await db.query(
+    `
+      UPDATE workflow_executions
+      SET
+        status = $2,
+        completed_at = NOW(),
+        result = COALESCE($3, result),
+        updated_at = NOW()
+      WHERE id = $1
+        AND status = 'RUNNING'
+      RETURNING
+        id,
+        workflow_id,
+        started_by,
+        status,
+        input,
+        result,
+        started_at,
+        completed_at,
+        created_at,
+        updated_at
+    `,
+    [id, status, result]
   );
 
   return resultQuery.rows[0];
+}
+
+async function findStaleRunning({ timeoutMinutes, limit = 100 }, db = database) {
+  const result = await db.query(
+    `
+      SELECT
+        id,
+        workflow_id,
+        started_by,
+        status,
+        input,
+        result,
+        started_at,
+        completed_at,
+        created_at,
+        updated_at
+      FROM workflow_executions
+      WHERE status = 'RUNNING'
+        AND started_at IS NOT NULL
+        AND started_at <= NOW() - ($1::numeric * INTERVAL '1 minute')
+      ORDER BY started_at ASC
+      LIMIT $2
+    `,
+    [timeoutMinutes, limit]
+  );
+
+  return result.rows;
+}
+
+async function failStaleRunning(
+  { id, timeoutMinutes, result },
+  db = database
+) {
+  const queryResult = await db.query(
+    `
+      UPDATE workflow_executions
+      SET
+        status = 'FAILED',
+        completed_at = NOW(),
+        result = $3,
+        updated_at = NOW()
+      WHERE id = $1
+        AND status = 'RUNNING'
+        AND started_at IS NOT NULL
+        AND started_at <= NOW() - ($2::numeric * INTERVAL '1 minute')
+      RETURNING
+        id,
+        workflow_id,
+        started_by,
+        status,
+        input,
+        result,
+        started_at,
+        completed_at,
+        created_at,
+        updated_at
+    `,
+    [id, timeoutMinutes, result]
+  );
+
+  return queryResult.rows[0];
 }
 
 module.exports = {
@@ -170,6 +263,9 @@ module.exports = {
   countAll,
   findById,
   create,
-  updateStatus,
+  claimPendingExecution,
+  finalizeRunningExecution,
+  findStaleRunning,
+  failStaleRunning,
   buildWorkflowExecutionsFiltersQuery,
 };

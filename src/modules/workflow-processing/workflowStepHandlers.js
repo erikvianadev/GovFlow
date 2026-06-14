@@ -38,7 +38,7 @@ async function handleManualStep(step) {
     output: {
       simulated: true,
       actionType: step.action_type,
-      message: "Manual step completed by synchronous processor simulation",
+      message: "Manual step completed by processor simulation",
     },
   };
 }
@@ -49,7 +49,7 @@ async function handleNotificationStep(step) {
     output: {
       simulated: true,
       actionType: step.action_type,
-      message: "Notification step completed by synchronous processor simulation",
+      message: "Notification step completed by processor simulation",
     },
   };
 }

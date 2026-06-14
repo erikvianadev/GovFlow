@@ -5,6 +5,12 @@ services:
     restart: always
     ports:
       - "3000:3000"
+    # env_file loads secrets/config (JWT_SECRET, CORS_ORIGINS, rate limits) from
+    # .env. The environment block below overrides host-specific values so the
+    # container reaches the Docker network services (postgres/redis) regardless
+    # of what .env points to for local use.
+    env_file:
+      - .env
     environment:
       PORT: 3000
       NODE_ENV: development
@@ -13,11 +19,41 @@ services:
       DB_USER: govflow_user
       DB_PASSWORD: govflow_password
       DB_NAME: govflow_db
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD:
+      WORKFLOW_EXECUTION_RUNNING_TIMEOUT_MINUTES: ${WORKFLOW_EXECUTION_RUNNING_TIMEOUT_MINUTES:-30}
     volumes:
       - .:/app
       - /app/node_modules
     depends_on:
       - postgres
+      - redis
+
+  worker:
+    build: .
+    container_name: govflow_worker
+    restart: always
+    command: npm run worker:workflow-processing
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: development
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: govflow_user
+      DB_PASSWORD: govflow_password
+      DB_NAME: govflow_db
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD:
+      WORKFLOW_EXECUTION_RUNNING_TIMEOUT_MINUTES: ${WORKFLOW_EXECUTION_RUNNING_TIMEOUT_MINUTES:-30}
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      - postgres
+      - redis
 
   postgres:
     image: postgres:16
@@ -32,5 +68,16 @@ services:
     volumes:
       - govflow_postgres_data:/var/lib/postgresql/data
 
+  redis:
+    image: redis:7-alpine
+    container_name: govflow_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
 volumes:
   govflow_postgres_data:
+  redis_data:

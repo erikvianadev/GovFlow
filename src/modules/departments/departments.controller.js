@@ -33,6 +33,7 @@ const create = asyncHandler(async (req, res) => {
   const department = await departmentsService.createDepartment({
     name: req.body.name,
     description: req.body.description,
+    createdBy: req.user.id,
   });
 
   return createdResponse(res, {

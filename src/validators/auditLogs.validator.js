@@ -1,3 +1,13 @@
+// Controlled allowlist of actions that may be created through the manual
+// POST /audit-logs endpoint. Manual entries cannot impersonate system events
+// (e.g. LOGIN_SUCCESS, USER_CREATED); they use this dedicated namespace.
+const MANUAL_AUDIT_LOG_ACTIONS = [
+  "MANUAL_NOTE",
+  "MANUAL_REVIEW",
+  "MANUAL_CORRECTION",
+  "MANUAL_OVERRIDE",
+];
+
 function validateCreateAuditLog(payload) {
   const errors = [];
 
@@ -5,6 +15,18 @@ function validateCreateAuditLog(payload) {
   validateEntity(payload.entity, errors);
   validateEntityId(payload.entityId, errors);
   validateActorId(payload.actorId, errors);
+  validateMetadata(payload.metadata, errors);
+
+  return errors;
+}
+
+function validateCreateManualAuditLog(payload) {
+  const errors = [];
+
+  validateManualAction(payload.action, errors);
+  validateEntity(payload.entity, errors);
+  validateEntityId(payload.entityId, errors);
+  validateRequiredActorId(payload.actorId, errors);
   validateMetadata(payload.metadata, errors);
 
   return errors;
@@ -122,6 +144,55 @@ function validateActorId(actorId, errors) {
   }
 }
 
+function validateManualAction(action, errors) {
+  if (action === undefined || action === null) {
+    errors.push({
+      field: "action",
+      message: "Action is required",
+    });
+    return;
+  }
+
+  if (typeof action !== "string") {
+    errors.push({
+      field: "action",
+      message: "Action must be a string",
+    });
+    return;
+  }
+
+  if (!MANUAL_AUDIT_LOG_ACTIONS.includes(action)) {
+    errors.push({
+      field: "action",
+      message: `Action must be one of: ${MANUAL_AUDIT_LOG_ACTIONS.join(", ")}`,
+    });
+  }
+}
+
+function validateRequiredActorId(actorId, errors) {
+  if (actorId === undefined || actorId === null) {
+    errors.push({
+      field: "actorId",
+      message: "Actor ID is required",
+    });
+    return;
+  }
+
+  if (typeof actorId !== "string" || !isValidUuid(actorId)) {
+    errors.push({
+      field: "actorId",
+      message: "Actor ID must be a valid UUID",
+    });
+  }
+}
+
+function isValidUuid(value) {
+  const uuidRegex =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  return uuidRegex.test(value);
+}
+
 function validateMetadata(metadata, errors) {
   if (metadata === undefined || metadata === null) {
     return;
@@ -204,5 +275,7 @@ function validateDateRange(startDate, endDate, errors) {
 
 module.exports = {
   validateCreateAuditLog,
+  validateCreateManualAuditLog,
   validateListAuditLogsFilters,
+  MANUAL_AUDIT_LOG_ACTIONS,
 };

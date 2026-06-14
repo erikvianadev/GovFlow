@@ -2,6 +2,7 @@ const auditLogsRepository = require("./auditLogs.repository");
 const AppError = require("../../errors/AppError");
 const {
   validateCreateAuditLog,
+  validateCreateManualAuditLog,
   validateListAuditLogsFilters,
 } = require("../../validators/auditLogs.validator");
 
@@ -87,7 +88,45 @@ async function register({
   });
 }
 
+// Manual audit log creation (POST /audit-logs). The actor is always the
+// authenticated user (never taken from the request body), the action is
+// restricted to a controlled allowlist, and the entry is flagged as manual so
+// it is distinguishable from system-generated events.
+async function registerManual({
+  action,
+  entity,
+  entityId = null,
+  actorId,
+  metadata = null,
+}) {
+  const validationErrors = validateCreateManualAuditLog({
+    action,
+    entity,
+    entityId,
+    actorId,
+    metadata,
+  });
+
+  if (validationErrors.length > 0) {
+    throw new AppError("Validation failed", 400, validationErrors);
+  }
+
+  const manualMetadata = {
+    ...(metadata || {}),
+    manual: true,
+  };
+
+  return auditLogsRepository.create({
+    action: action.trim(),
+    entity: entity.trim(),
+    entityId,
+    actorId,
+    metadata: manualMetadata,
+  });
+}
+
 module.exports = {
   listAuditLogs,
   register,
+  registerManual,
 };
