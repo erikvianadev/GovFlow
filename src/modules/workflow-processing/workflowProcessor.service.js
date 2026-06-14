@@ -37,8 +37,8 @@ async function processWorkflowExecution({ executionId, processedBy }) {
   }
 
   // Atomically transition PENDING -> RUNNING. Only one caller can win this
-  // claim, so concurrent /process requests (or a future worker racing the
-  // synchronous endpoint) cannot process the same execution twice.
+  // claim, so concurrent worker and API processing requests cannot process the
+  // same execution twice.
   const claimedExecution = await workflowExecutionsRepository.claimPendingExecution(
     {
       id: executionId,

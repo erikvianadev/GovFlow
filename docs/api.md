@@ -536,7 +536,7 @@ Validation rules:
 
 ### POST /workflow-executions/:id/process
 
-Processes a pending workflow execution synchronously.
+Queues a pending workflow execution for asynchronous processing.
 
 Access: ADMIN, MANAGER.
 
@@ -550,8 +550,56 @@ Behavior:
 
 - validates the execution ID
 - requires the execution to be `PENDING`
+- creates a BullMQ job in the workflow processing queue
+- returns `202 Accepted` immediately with status `QUEUED`
+- worker consumes the job later
+- worker calls the internal workflow processor
+- execution can then move through `RUNNING` to `COMPLETED` or `FAILED`
+
+Success response:
+
+Status: `202 Accepted`
+
+```json
+{
+  "success": true,
+  "message": "Workflow execution processing job queued successfully",
+  "data": {
+    "jobId": "workflow-execution-uuid",
+    "queueName": "workflow-processing",
+    "executionId": "uuid",
+    "status": "QUEUED"
+  }
+}
+```
+
+Clients should follow processing progress with:
+
+```http
+GET /workflow-executions/:id
+GET /workflow-executions/:executionId/steps
+```
+
+### POST /workflow-executions/:id/enqueue
+
+Temporary alias for `POST /workflow-executions/:id/process`.
+
+Access: ADMIN, MANAGER.
+
+Behavior and response are the same as `/process`. New clients should prefer
+`/process`.
+
+## Internal Workflow Processor
+
+The workflow processor is now called by the worker, not by the public
+`/process` endpoint.
+
+Internal behavior:
+
+- validates the execution ID
+- requires the execution to be `PENDING`
 - loads execution steps
-- marks the execution as `RUNNING`
+- atomically claims the execution as `RUNNING`
 - processes steps in `step_order ASC`
 - marks each step as `RUNNING`
 - marks successful steps as `COMPLETED`
@@ -559,12 +607,12 @@ Behavior:
 - marks the failing step as `FAILED` if a step fails
 - marks the execution as `FAILED` if any step fails
 
-Success response:
+Completed execution shape:
 
 ```json
 {
   "success": true,
-  "message": "Workflow execution processed successfully",
+  "message": "Workflow execution retrieved successfully",
   "data": {
     "id": "uuid",
     "workflow_id": "uuid",
@@ -582,7 +630,7 @@ Success response:
           "output": {
             "simulated": true,
             "actionType": "MANUAL",
-            "message": "Manual step completed by synchronous processor simulation"
+            "message": "Manual step completed by processor simulation"
           }
         }
       ]
@@ -591,15 +639,15 @@ Success response:
 }
 ```
 
-Controlled failure response:
+Controlled failure shape:
 
-A workflow processing failure is returned as HTTP `200` with business status
-`FAILED`.
+A workflow processing failure is reflected on the execution resource as
+business status `FAILED`.
 
 ```json
 {
   "success": true,
-  "message": "Workflow execution processed successfully",
+  "message": "Workflow execution retrieved successfully",
   "data": {
     "id": "uuid",
     "status": "FAILED",

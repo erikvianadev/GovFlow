@@ -1,15 +1,17 @@
-const workflowProcessorService = require("./workflowProcessor.service");
+const workflowProcessingQueueService = require("./workflowProcessingQueue.service");
 const asyncHandler = require("../../utils/asyncHandler");
 const { successResponse } = require("../../utils/apiResponse");
 
 const process = asyncHandler(async (req, res) => {
-  const result = await workflowProcessorService.processWorkflowExecution({
+  const result =
+    await workflowProcessingQueueService.enqueueWorkflowExecutionProcessing({
     executionId: req.params.id,
     processedBy: req.user.id,
   });
 
   return successResponse(res, {
-    message: "Workflow execution processed successfully",
+    statusCode: 202,
+    message: "Workflow execution processing job queued successfully",
     data: result,
   });
 });

@@ -19,6 +19,14 @@ const workflowProcessingQueueServicePath = path.join(
   __dirname,
   "../src/modules/workflow-processing/workflowProcessingQueue.service.js"
 );
+const workflowProcessorControllerPath = path.join(
+  __dirname,
+  "../src/modules/workflow-processing/workflowProcessor.controller.js"
+);
+const workflowProcessorServicePath = path.join(
+  __dirname,
+  "../src/modules/workflow-processing/workflowProcessor.service.js"
+);
 const authMiddlewarePath = path.join(
   __dirname,
   "../src/middlewares/auth.middleware.js"
@@ -74,8 +82,10 @@ async function withTestServer(callback) {
     appPath,
     routesIndexPath,
     workflowProcessorRoutesPath,
+    workflowProcessorControllerPath,
     workflowProcessingQueueControllerPath,
     workflowProcessingQueueServicePath,
+    workflowProcessorServicePath,
     authMiddlewarePath,
     usersRepositoryPath,
   ].forEach((modulePath) => delete require.cache[modulePath]);
@@ -93,6 +103,11 @@ async function withTestServer(callback) {
         executionId: payload.executionId,
         status: "QUEUED",
       };
+    },
+  });
+  mockModule(workflowProcessorServicePath, {
+    processWorkflowExecution: async () => {
+      throw new Error("/process must enqueue jobs instead of processing");
     },
   });
 
@@ -186,6 +201,95 @@ test("POST /workflow-executions/:id/enqueue accepts MANAGER users", async () => 
   await withTestServer(async ({ baseUrl, enqueueCalls }) => {
     const response = await fetch(
       `${baseUrl}/workflow-executions/${executionId}/enqueue`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${signAccessToken(managerUser)}`,
+        },
+      }
+    );
+
+    assert.strictEqual(response.status, 202);
+    assert.deepStrictEqual(enqueueCalls, [
+      {
+        executionId,
+        processedBy: managerUser.id,
+      },
+    ]);
+  });
+});
+
+test("POST /workflow-executions/:id/process requires authentication", async () => {
+  await withTestServer(async ({ baseUrl }) => {
+    const response = await fetch(
+      `${baseUrl}/workflow-executions/${executionId}/process`,
+      { method: "POST" }
+    );
+    const body = await response.json();
+
+    assert.strictEqual(response.status, 401);
+    assert.strictEqual(body.message, "Authentication token is required");
+  });
+});
+
+test("POST /workflow-executions/:id/process blocks OPERATOR users", async () => {
+  await withTestServer(async ({ baseUrl }) => {
+    const response = await fetch(
+      `${baseUrl}/workflow-executions/${executionId}/process`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${signAccessToken(operatorUser)}`,
+        },
+      }
+    );
+    const body = await response.json();
+
+    assert.strictEqual(response.status, 403);
+    assert.strictEqual(
+      body.message,
+      "You do not have permission to access this resource"
+    );
+  });
+});
+
+test("POST /workflow-executions/:id/process queues jobs for ADMIN users", async () => {
+  await withTestServer(async ({ baseUrl, enqueueCalls }) => {
+    const response = await fetch(
+      `${baseUrl}/workflow-executions/${executionId}/process`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${signAccessToken(adminUser)}`,
+        },
+      }
+    );
+    const body = await response.json();
+
+    assert.strictEqual(response.status, 202);
+    assert.strictEqual(
+      body.message,
+      "Workflow execution processing job queued successfully"
+    );
+    assert.deepStrictEqual(body.data, {
+      jobId: `workflow-execution-${executionId}`,
+      queueName: "workflow-processing",
+      executionId,
+      status: "QUEUED",
+    });
+    assert.deepStrictEqual(enqueueCalls, [
+      {
+        executionId,
+        processedBy: adminUser.id,
+      },
+    ]);
+  });
+});
+
+test("POST /workflow-executions/:id/process queues jobs for MANAGER users", async () => {
+  await withTestServer(async ({ baseUrl, enqueueCalls }) => {
+    const response = await fetch(
+      `${baseUrl}/workflow-executions/${executionId}/process`,
       {
         method: "POST",
         headers: {

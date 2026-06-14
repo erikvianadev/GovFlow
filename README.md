@@ -182,12 +182,13 @@ Workflow
 - `workflow_execution_steps` record the state of each step inside an execution.
 
 Workflow executions now create execution steps automatically from active
-workflow steps. The synchronous processor can move an execution through its
-steps and finish it as `COMPLETED` or `FAILED`.
+workflow steps. Processing is requested through the asynchronous `/process`
+endpoint, queued in BullMQ, consumed by the worker, and then reflected back in
+the execution and step records as `COMPLETED` or `FAILED`.
 
 ## Workflow Processing
 
-GovFlow now includes an initial synchronous workflow processor.
+GovFlow now includes asynchronous workflow processing.
 
 Current processing flow:
 
@@ -195,6 +196,8 @@ Current processing flow:
 Workflow execution created
   -> Execution steps created automatically from active workflow steps
   -> Execution starts as PENDING
+  -> POST /workflow-executions/:id/process queues a BullMQ job
+  -> Worker consumes the job from Redis
   -> Processor marks execution as RUNNING
   -> Processor processes execution steps in step_order ASC
   -> Each step moves from PENDING to RUNNING
@@ -211,8 +214,8 @@ Execution RUNNING
   -> Execution FAILED
 ```
 
-The processor is currently synchronous and simulated. It does not call Jira,
-email services, webhooks, Redis, BullMQ, or external systems yet.
+The processor is currently simulated. It does not call Jira, email services,
+webhooks, or external systems yet.
 
 ## Workflow Statuses
 

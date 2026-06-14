@@ -153,11 +153,17 @@ Important rules:
 
 ### Workflow Processing Module
 
-Processes pending workflow executions synchronously.
+Queues pending workflow executions and processes them asynchronously through a
+worker.
 
 Important rules:
 
-- only `PENDING` executions can be processed.
+- `POST /workflow-executions/:id/process` is the official async processing endpoint.
+- `POST /workflow-executions/:id/enqueue` remains as a temporary alias.
+- only `PENDING` executions can be queued.
+- the API adds a BullMQ job and returns `202 Accepted` with status `QUEUED`.
+- the worker consumes jobs from Redis.
+- the worker calls the internal workflow processor.
 - execution status moves to `RUNNING` before step processing.
 - steps are processed in `step_order ASC`.
 - successful steps move to `COMPLETED`.
@@ -210,6 +216,10 @@ Processing flow:
 POST /workflow-executions/:id/process
   -> Validate execution
   -> Ensure execution is PENDING
+  -> Add workflow processing job to BullMQ
+  -> Return 202 Accepted with status QUEUED
+  -> Worker consumes job
+  -> Worker calls workflowProcessor.service
   -> Load workflow_execution_steps
   -> Set execution RUNNING
   -> For each step ordered by step_order ASC:
@@ -221,7 +231,19 @@ POST /workflow-executions/:id/process
 
 ## Workflow Processing Architecture
 
-GovFlow currently uses a synchronous workflow processor.
+GovFlow uses asynchronous workflow processing as the public API contract.
+
+Architecture:
+
+```txt
+Client
+  -> API
+  -> BullMQ Queue
+  -> Redis
+  -> Worker
+  -> Workflow Processor
+  -> PostgreSQL
+```
 
 Current creation flow:
 
@@ -240,6 +262,9 @@ Current processing flow:
 POST /workflow-executions/:id/process
   -> Validate execution
   -> Ensure execution is PENDING
+  -> Enqueue workflow-processing job
+  -> Return 202 Accepted
+  -> Worker receives job
   -> Load workflow_execution_steps
   -> Set execution RUNNING
   -> For each step ordered by step_order ASC:
@@ -717,9 +742,9 @@ docker exec govflow_api npm test
 docker exec govflow_api npm run db:migrate
 ```
 
-Manual validation during Sprint 4 also covered Docker migrations, HTTP
-scenarios for workflow execution creation, execution step listing, synchronous
-processing, controlled failures, RBAC, filters, lookup by ID, and audit log
+Manual validation also covered Docker migrations, HTTP scenarios for workflow
+execution creation, execution step listing, asynchronous processing through the
+worker, controlled failures, RBAC, filters, lookup by ID, and audit log
 creation.
 
 ## Current Trade-offs
@@ -764,28 +789,28 @@ Future evolution:
 - Token versioning.
 - Redis-backed session or revocation strategy.
 
-### Synchronous Workflow Processing
+### Asynchronous Workflow Processing
 
-Workflow processing currently runs inside the API process.
+Workflow processing is exposed as an asynchronous API contract.
 
 Reasons:
 
-- Prove the execution lifecycle before adding queue infrastructure.
-- Keep behavior easy to inspect while the domain is still evolving.
-- Avoid Jira, email, webhook, and worker complexity before the processor
-  contract is stable.
+- Avoid long-running work inside the API request lifecycle.
+- Keep `/process` focused on the business intent while BullMQ and Redis handle
+  execution handoff.
+- Keep processing rules centralized in `workflowProcessor.service`, which is
+  called by the worker.
 
 Trade-offs:
 
-- Processing is not asynchronous yet.
-- A process crash can leave an execution in `RUNNING`.
-- There is no retry or timeout recovery yet.
+- Clients must poll `GET /workflow-executions/:id` and
+  `GET /workflow-executions/:executionId/steps` for progress.
+- Retry and timeout recovery are not fully implemented yet.
+- A worker crash can still leave an execution in `RUNNING` until recovery logic
+  exists.
 
 Future evolution:
 
-- Redis
-- BullMQ or another queue
-- Dedicated worker process
 - Retry strategy
 - Jira transition/comment integration
 - Notification dispatch
@@ -823,21 +848,20 @@ Deployment pipeline
 
 ## Future Processing Evolution
 
-The current processor is synchronous and runs inside the API process.
-
-This is intentional for the current sprint.
+The public processing contract is asynchronous. The processor remains an
+internal service used by the worker.
 
 Future evolution:
 
 ```txt
-Synchronous processor
-  -> Redis
+API /process
   -> BullMQ
-  -> Background worker
+  -> Worker
+  -> Processor service
   -> Retry strategy
   -> Jira integration
   -> Step execution logs
 ```
 
-The current implementation proves the processing lifecycle before introducing
-queue infrastructure.
+The current implementation proves the queue-to-worker lifecycle before adding
+production retry, timeout recovery, and external integrations.
