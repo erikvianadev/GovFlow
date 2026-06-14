@@ -689,6 +689,10 @@ Optional body:
 }
 ```
 
+Both fields are optional. When provided, each must be a positive integer, and
+`limit` must not exceed `100`. Invalid values are rejected with
+`400 Validation failed` (they are not silently coerced to defaults).
+
 Behavior:
 
 - uses `WORKFLOW_EXECUTION_RUNNING_TIMEOUT_MINUTES` when `timeoutMinutes` is not
@@ -697,9 +701,15 @@ Behavior:
 - marks currently `RUNNING` steps as `FAILED`
 - preserves steps already `COMPLETED`
 - preserves later steps still `PENDING`
-- marks the execution as `FAILED`
+- marks the execution as `FAILED` with a single guarded write that only applies
+  while the execution is still `RUNNING`
 - stores `result.recoveryReason = "Execution timed out while running"`
 - registers `WORKFLOW_EXECUTION_RECOVERY_FAILED`
+
+The recovery and a still-alive worker can no longer overwrite each other: the
+final state transition is guarded on the `RUNNING` status, so whichever actor
+finalizes the execution first wins, and the other observes the already-terminal
+state instead of clobbering it.
 
 Success response:
 

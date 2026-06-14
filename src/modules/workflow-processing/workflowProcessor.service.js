@@ -100,23 +100,35 @@ async function processWorkflowExecution({ executionId, processedBy }) {
         errorMessage: error.message,
       });
 
-      const failedExecution = await workflowExecutionsRepository.updateStatus({
-        id: executionId,
-        status: "FAILED",
-        completedAt: new Date(),
-        result: {
-          processedBy,
-          stepsProcessed: stepOutputs.length,
-          failedStep: {
-            executionStepId: step.id,
-            stepId: step.step_id,
-            stepOrder: step.step_order,
-            actionType: step.action_type,
-            error: error.message,
+      // Finalize only while still RUNNING. If the execution was already
+      // finalized concurrently (e.g. recovered as FAILED while this worker was
+      // still alive), respect the existing terminal state instead of
+      // overwriting it.
+      const failedExecution =
+        await workflowExecutionsRepository.finalizeRunningExecution({
+          id: executionId,
+          status: "FAILED",
+          result: {
+            processedBy,
+            stepsProcessed: stepOutputs.length,
+            failedStep: {
+              executionStepId: step.id,
+              stepId: step.step_id,
+              stepOrder: step.step_order,
+              actionType: step.action_type,
+              error: error.message,
+            },
+            steps: stepOutputs,
           },
-          steps: stepOutputs,
-        },
-      });
+        });
+
+      if (!failedExecution) {
+        return finalizeConcurrentlyClaimedExecution({
+          executionId,
+          workflowId: execution.workflow_id,
+          processedBy,
+        });
+      }
 
       await safeRegisterAuditLog({
         action: "WORKFLOW_EXECUTION_PROCESS_FAILED",
@@ -135,16 +147,24 @@ async function processWorkflowExecution({ executionId, processedBy }) {
     }
   }
 
-  const completedExecution = await workflowExecutionsRepository.updateStatus({
-    id: executionId,
-    status: "COMPLETED",
-    completedAt: new Date(),
-    result: {
+  const completedExecution =
+    await workflowExecutionsRepository.finalizeRunningExecution({
+      id: executionId,
+      status: "COMPLETED",
+      result: {
+        processedBy,
+        stepsProcessed: stepOutputs.length,
+        steps: stepOutputs,
+      },
+    });
+
+  if (!completedExecution) {
+    return finalizeConcurrentlyClaimedExecution({
+      executionId,
+      workflowId: execution.workflow_id,
       processedBy,
-      stepsProcessed: stepOutputs.length,
-      steps: stepOutputs,
-    },
-  });
+    });
+  }
 
   await safeRegisterAuditLog({
     action: "WORKFLOW_EXECUTION_PROCESS_COMPLETED",
@@ -159,6 +179,34 @@ async function processWorkflowExecution({ executionId, processedBy }) {
   });
 
   return completedExecution;
+}
+
+// Handle the case where a finalize update matched no rows because the
+// execution left RUNNING in the meantime (most likely the stale-running
+// recovery already failed it). We do not overwrite the terminal state; we
+// surface whatever state currently exists so the worker reports it faithfully.
+async function finalizeConcurrentlyClaimedExecution({
+  executionId,
+  workflowId,
+  processedBy,
+}) {
+  const currentExecution = await workflowExecutionsRepository.findById(
+    executionId
+  );
+
+  await safeRegisterAuditLog({
+    action: "WORKFLOW_EXECUTION_PROCESS_SKIPPED",
+    entity: "workflow_execution",
+    entityId: executionId,
+    actorId: processedBy,
+    metadata: {
+      workflowId,
+      reason: "Execution was already finalized before processing completed",
+      currentStatus: currentExecution ? currentExecution.status : null,
+    },
+  });
+
+  return currentExecution;
 }
 
 module.exports = {

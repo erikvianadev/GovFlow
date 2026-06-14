@@ -48,7 +48,6 @@ function loadService({
     transactions: 0,
     failedSteps: [],
     failedExecutions: [],
-    finalizedExecutions: [],
     audit: [],
   };
 
@@ -91,18 +90,6 @@ function loadService({
           result: payload.result,
         };
       }),
-    updateStatus: async (payload, db) => {
-      assert.strictEqual(db, trx);
-      calls.finalizedExecutions.push(payload);
-      return {
-        id: payload.id,
-        workflow_id: "workflow-1",
-        status: payload.status,
-        started_at: "2026-06-14T10:00:00.000Z",
-        completed_at: "2026-06-14T10:40:00.000Z",
-        result: payload.result,
-      };
-    },
   });
   mockModule(workflowExecutionStepsRepositoryPath, {
     failRunningByExecutionId: async (payload, db) => {
@@ -159,9 +146,10 @@ test("recoverStaleRunningExecutions fails stale executions and running steps", a
   );
   assert.strictEqual(calls.failedExecutions[0].result.recoveredBy, recoveredBy);
   assert.strictEqual(calls.failedExecutions[0].result.timeoutMinutes, 45);
-  assert.strictEqual(calls.finalizedExecutions.length, 1);
+  // The complete recovery result (including failed RUNNING steps) is written in
+  // a single guarded execution update, not a second unguarded one.
   assert.deepStrictEqual(
-    calls.finalizedExecutions[0].result.failedRunningSteps,
+    calls.failedExecutions[0].result.failedRunningSteps,
     [
       {
         executionStepId: "execution-step-1",
@@ -180,14 +168,37 @@ test("recoverStaleRunningExecutions fails stale executions and running steps", a
   assert.strictEqual(result.recoveredExecutions[0].failedRunningStepsCount, 1);
 });
 
-test("recoverStaleRunningExecutions uses env timeout and caps the limit", async () => {
+test("recoverStaleRunningExecutions rejects invalid timeoutMinutes and limit", async () => {
+  const { service, calls } = loadService();
+
+  await assert.rejects(
+    service.recoverStaleRunningExecutions({ timeoutMinutes: -5 }),
+    (error) =>
+      error.statusCode === 400 && error.message === "Validation failed"
+  );
+
+  await assert.rejects(
+    service.recoverStaleRunningExecutions({ limit: 1000 }),
+    (error) =>
+      error.statusCode === 400 && error.message === "Validation failed"
+  );
+
+  await assert.rejects(
+    service.recoverStaleRunningExecutions({ timeoutMinutes: 10.5 }),
+    (error) =>
+      error.statusCode === 400 && error.message === "Validation failed"
+  );
+
+  // Invalid input is rejected before any scan happens.
+  assert.strictEqual(calls.findStale.length, 0);
+});
+
+test("recoverStaleRunningExecutions falls back to env timeout and default limit", async () => {
   const { service, calls } = loadService({
     staleExecutions: [],
   });
 
-  const result = await service.recoverStaleRunningExecutions({
-    limit: 999,
-  });
+  const result = await service.recoverStaleRunningExecutions();
 
   assert.deepStrictEqual(calls.findStale, [
     {
@@ -209,8 +220,9 @@ test("recoverStaleRunningExecutions skips rows that are no longer stale", async 
   const result = await service.recoverStaleRunningExecutions();
 
   assert.strictEqual(calls.transactions, 1);
-  assert.strictEqual(calls.failedSteps.length, 0);
-  assert.strictEqual(calls.finalizedExecutions.length, 0);
+  // Steps are failed first, but the guarded execution update matches nothing,
+  // so the transaction is rolled back and the execution is not recovered.
+  assert.strictEqual(calls.failedSteps.length, 1);
   assert.strictEqual(calls.audit.length, 0);
   assert.strictEqual(result.scannedCount, 1);
   assert.strictEqual(result.recoveredCount, 0);

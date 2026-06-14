@@ -5,8 +5,8 @@ const {
   buildWorkflowExecutionsFiltersQuery,
   claimPendingExecution,
   failStaleRunning,
+  finalizeRunningExecution,
   findStaleRunning,
-  updateStatus,
 } = require("../src/modules/workflow-executions/workflowExecutions.repository");
 
 test("buildWorkflowExecutionsFiltersQuery builds no WHERE clause without filters", () => {
@@ -70,7 +70,7 @@ test("claimPendingExecution returns undefined when no PENDING row matches", asyn
   assert.strictEqual(claimed, undefined);
 });
 
-test("updateStatus updates workflow execution lifecycle fields", async () => {
+test("finalizeRunningExecution only updates executions still in RUNNING", async () => {
   let capturedSql;
   let capturedValues;
   const db = {
@@ -87,16 +87,12 @@ test("updateStatus updates workflow execution lifecycle fields", async () => {
       };
     },
   };
-  const startedAt = new Date("2026-01-01T00:00:00.000Z");
-  const completedAt = new Date("2026-01-01T00:01:00.000Z");
   const result = { stepsProcessed: 2 };
 
-  const updated = await updateStatus(
+  const finalized = await finalizeRunningExecution(
     {
       id: "execution-1",
       status: "COMPLETED",
-      startedAt,
-      completedAt,
       result,
     },
     db
@@ -104,16 +100,27 @@ test("updateStatus updates workflow execution lifecycle fields", async () => {
 
   assert.match(
     capturedSql,
-    /update workflow_executions set status = \$2, started_at = coalesce\(\$3, started_at\), completed_at = coalesce\(\$4, completed_at\), result = coalesce\(\$5, result\), updated_at = now\(\) where id = \$1 returning/
+    /update workflow_executions set status = \$2, completed_at = now\(\), result = coalesce\(\$3, result\), updated_at = now\(\) where id = \$1 and status = 'running' returning/
   );
-  assert.deepStrictEqual(capturedValues, [
-    "execution-1",
-    "COMPLETED",
-    startedAt,
-    completedAt,
-    result,
-  ]);
-  assert.strictEqual(updated.status, "COMPLETED");
+  assert.deepStrictEqual(capturedValues, ["execution-1", "COMPLETED", result]);
+  assert.strictEqual(finalized.status, "COMPLETED");
+});
+
+test("finalizeRunningExecution returns undefined when the execution left RUNNING", async () => {
+  const db = {
+    query: async () => ({ rows: [] }),
+  };
+
+  const finalized = await finalizeRunningExecution(
+    {
+      id: "execution-1",
+      status: "COMPLETED",
+      result: { stepsProcessed: 2 },
+    },
+    db
+  );
+
+  assert.strictEqual(finalized, undefined);
 });
 
 test("findStaleRunning selects RUNNING executions older than the timeout", async () => {

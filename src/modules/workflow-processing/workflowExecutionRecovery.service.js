@@ -1,11 +1,22 @@
+const AppError = require("../../errors/AppError");
 const database = require("../../config/database");
 const env = require("../../config/env");
 const workflowExecutionsRepository = require("../workflow-executions/workflowExecutions.repository");
 const workflowExecutionStepsRepository = require("../workflow-execution-steps/workflowExecutionSteps.repository");
 const { safeRegisterAuditLog } = require("../../utils/safeAuditLog");
+const {
+  validateRecoverStaleRunning,
+  MAX_RECOVERY_LIMIT,
+} = require("../../validators/workflowExecutions.validator");
 
-const DEFAULT_RECOVERY_LIMIT = 100;
+const DEFAULT_RECOVERY_LIMIT = MAX_RECOVERY_LIMIT;
 const RECOVERY_REASON = "Execution timed out while running";
+
+// Thrown inside the recovery transaction when the execution is no longer stale
+// RUNNING (another recovery run or a worker finalized it first). Throwing rolls
+// back the step failures we may have already applied in the same transaction,
+// so we never leave steps FAILED under an execution we did not finalize.
+class StaleRecoveryRaceLost extends Error {}
 
 function resolveTimeoutMinutes(timeoutMinutes) {
   const parsedValue = Number(timeoutMinutes);
@@ -21,7 +32,7 @@ function resolveLimit(limit) {
   const parsedValue = Number(limit);
 
   if (Number.isInteger(parsedValue) && parsedValue > 0) {
-    return Math.min(parsedValue, DEFAULT_RECOVERY_LIMIT);
+    return Math.min(parsedValue, MAX_RECOVERY_LIMIT);
   }
 
   return DEFAULT_RECOVERY_LIMIT;
@@ -32,6 +43,12 @@ async function recoverStaleRunningExecutions({
   timeoutMinutes,
   limit,
 } = {}) {
+  const validationErrors = validateRecoverStaleRunning({ timeoutMinutes, limit });
+
+  if (validationErrors.length > 0) {
+    throw new AppError("Validation failed", 400, validationErrors);
+  }
+
   const resolvedTimeoutMinutes = resolveTimeoutMinutes(timeoutMinutes);
   const resolvedLimit = resolveLimit(limit);
   const staleExecutions = await workflowExecutionsRepository.findStaleRunning({
@@ -42,65 +59,63 @@ async function recoverStaleRunningExecutions({
   const recoveredExecutions = [];
 
   for (const execution of staleExecutions) {
-    const recoveryResult = await database.transaction(async (trx) => {
-      const recoveredAt = new Date().toISOString();
-      const baseResult = {
-        ...(execution.result || {}),
-        recoveryReason: RECOVERY_REASON,
-        recoveredBy,
-        recoveredAt,
-        timeoutMinutes: resolvedTimeoutMinutes,
-        previousStatus: execution.status,
-      };
+    let recoveryResult;
 
-      const recoveredExecution = await workflowExecutionsRepository.failStaleRunning(
-        {
-          id: execution.id,
+    try {
+      recoveryResult = await database.transaction(async (trx) => {
+        // Fail the RUNNING steps first so the complete recovery result can be
+        // written in a single guarded execution update below.
+        const failedSteps =
+          await workflowExecutionStepsRepository.failRunningByExecutionId(
+            {
+              executionId: execution.id,
+              errorMessage: RECOVERY_REASON,
+            },
+            trx
+          );
+
+        const result = {
+          ...(execution.result || {}),
+          recoveryReason: RECOVERY_REASON,
+          recoveredBy,
+          recoveredAt: new Date().toISOString(),
           timeoutMinutes: resolvedTimeoutMinutes,
-          result: baseResult,
-        },
-        trx
-      );
+          previousStatus: execution.status,
+          failedRunningSteps: failedSteps.map((step) => ({
+            executionStepId: step.id,
+            stepId: step.step_id,
+            error: RECOVERY_REASON,
+          })),
+        };
 
-      if (!recoveredExecution) {
-        return null;
+        // Single guarded write: only fails the execution while it is still a
+        // stale RUNNING row. If it matches nothing, another actor finalized it
+        // first, so we roll back the step failures applied above.
+        const recoveredExecution =
+          await workflowExecutionsRepository.failStaleRunning(
+            {
+              id: execution.id,
+              timeoutMinutes: resolvedTimeoutMinutes,
+              result,
+            },
+            trx
+          );
+
+        if (!recoveredExecution) {
+          throw new StaleRecoveryRaceLost();
+        }
+
+        return {
+          execution: recoveredExecution,
+          failedSteps,
+        };
+      });
+    } catch (error) {
+      if (error instanceof StaleRecoveryRaceLost) {
+        continue;
       }
 
-      const failedSteps =
-        await workflowExecutionStepsRepository.failRunningByExecutionId(
-          {
-            executionId: execution.id,
-            errorMessage: RECOVERY_REASON,
-          },
-          trx
-        );
-
-      const finalResult = {
-        ...baseResult,
-        failedRunningSteps: failedSteps.map((step) => ({
-          executionStepId: step.id,
-          stepId: step.step_id,
-          error: RECOVERY_REASON,
-        })),
-      };
-
-      const finalizedExecution = await workflowExecutionsRepository.updateStatus(
-        {
-          id: execution.id,
-          status: "FAILED",
-          result: finalResult,
-        },
-        trx
-      );
-
-      return {
-        execution: finalizedExecution,
-        failedSteps,
-      };
-    });
-
-    if (!recoveryResult) {
-      continue;
+      throw error;
     }
 
     await safeRegisterAuditLog({

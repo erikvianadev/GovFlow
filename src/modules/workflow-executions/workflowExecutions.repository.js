@@ -161,8 +161,12 @@ async function claimPendingExecution({ id }, db = database) {
   return result.rows[0];
 }
 
-async function updateStatus(
-  { id, status, startedAt = null, completedAt = null, result = null },
+// Finalize a workflow execution into a terminal state, but only while it is
+// still RUNNING. The status guard prevents a slow-but-alive worker from
+// overwriting a state already set by the stale-running recovery (or vice
+// versa): once an execution leaves RUNNING, this update matches no rows.
+async function finalizeRunningExecution(
+  { id, status, result = null },
   db = database
 ) {
   const resultQuery = await db.query(
@@ -170,11 +174,11 @@ async function updateStatus(
       UPDATE workflow_executions
       SET
         status = $2,
-        started_at = COALESCE($3, started_at),
-        completed_at = COALESCE($4, completed_at),
-        result = COALESCE($5, result),
+        completed_at = NOW(),
+        result = COALESCE($3, result),
         updated_at = NOW()
       WHERE id = $1
+        AND status = 'RUNNING'
       RETURNING
         id,
         workflow_id,
@@ -187,7 +191,7 @@ async function updateStatus(
         created_at,
         updated_at
     `,
-    [id, status, startedAt, completedAt, result]
+    [id, status, result]
   );
 
   return resultQuery.rows[0];
@@ -260,7 +264,7 @@ module.exports = {
   findById,
   create,
   claimPendingExecution,
-  updateStatus,
+  finalizeRunningExecution,
   findStaleRunning,
   failStaleRunning,
   buildWorkflowExecutionsFiltersQuery,

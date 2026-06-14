@@ -32,6 +32,51 @@ function validateListWorkflowExecutionsFilters(filters) {
   return errors;
 }
 
+const MAX_RECOVERY_LIMIT = 100;
+
+function validateRecoverStaleRunning({ timeoutMinutes, limit } = {}) {
+  const errors = [];
+
+  validateOptionalPositiveInteger(
+    timeoutMinutes,
+    "timeoutMinutes",
+    "Timeout minutes",
+    errors
+  );
+  validateOptionalPositiveInteger(limit, "limit", "Limit", errors, {
+    max: MAX_RECOVERY_LIMIT,
+  });
+
+  return errors;
+}
+
+function validateOptionalPositiveInteger(
+  value,
+  field,
+  label,
+  errors,
+  { max } = {}
+) {
+  if (value === undefined || value === null || value === "") {
+    return;
+  }
+
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    errors.push({
+      field,
+      message: `${label} must be a positive integer`,
+    });
+    return;
+  }
+
+  if (max !== undefined && value > max) {
+    errors.push({
+      field,
+      message: `${label} must be at most ${max}`,
+    });
+  }
+}
+
 function validateInput(input, errors) {
   if (input === undefined || input === null) {
     return;
@@ -122,4 +167,6 @@ module.exports = {
   validateWorkflowId,
   validateWorkflowExecutionId,
   validateListWorkflowExecutionsFilters,
+  validateRecoverStaleRunning,
+  MAX_RECOVERY_LIMIT,
 };

@@ -326,10 +326,23 @@ RUNNING execution older than timeout
   -> Mark RUNNING execution steps as FAILED
   -> Preserve previously COMPLETED steps
   -> Preserve later PENDING steps
-  -> Mark execution as FAILED
+  -> Mark execution as FAILED (single guarded write, only while RUNNING)
   -> Set result.recoveryReason = "Execution timed out while running"
   -> Register WORKFLOW_EXECUTION_RECOVERY_FAILED audit log
 ```
+
+Each execution is recovered inside a single transaction: the RUNNING steps are
+failed first, then the execution is failed with one guarded update
+(`WHERE status = 'RUNNING'`) that also writes the complete recovery result. If
+that guarded update matches no rows (another recovery run or a live worker
+already finalized the execution), the transaction is rolled back and the row is
+skipped, so step failures are never committed under an execution this run did
+not finalize.
+
+Worker finalization (`COMPLETED`/`FAILED`) is guarded the same way. A worker
+that is alive but slower than the timeout therefore cannot resurrect an
+execution the recovery already failed: its guarded finalize matches no rows and
+it reports the existing terminal state instead.
 
 Recovery can be triggered through:
 
