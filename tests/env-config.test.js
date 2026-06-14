@@ -124,3 +124,48 @@ test("env defaults to production when NODE_ENV is not set", () => {
   assert.strictEqual(result.status, 0, result.stderr);
   assert.match(result.stdout, /NODE_ENV_RESOLVED=production/);
 });
+
+test("env exposes workflow execution running timeout with a default", () => {
+  const result = spawnSync(
+    process.execPath,
+    [
+      "-e",
+      "process.stdout.write(String(require(process.env.__ENV_MODULE_PATH).workflowExecution.runningTimeoutMinutes))",
+    ],
+    {
+      cwd: os.tmpdir(),
+      env: {
+        ...process.env,
+        ...VALID_ENV,
+        __ENV_MODULE_PATH: envModulePath,
+      },
+      encoding: "utf8",
+    }
+  );
+
+  assert.strictEqual(result.status, 0, result.stderr);
+  assert.match(result.stdout, /30$/);
+});
+
+test("env accepts WORKFLOW_EXECUTION_RUNNING_TIMEOUT_MINUTES", () => {
+  const result = spawnSync(
+    process.execPath,
+    [
+      "-e",
+      "process.stdout.write(String(require(process.env.__ENV_MODULE_PATH).workflowExecution.runningTimeoutMinutes))",
+    ],
+    {
+      cwd: os.tmpdir(),
+      env: {
+        ...process.env,
+        ...VALID_ENV,
+        WORKFLOW_EXECUTION_RUNNING_TIMEOUT_MINUTES: "45",
+        __ENV_MODULE_PATH: envModulePath,
+      },
+      encoding: "utf8",
+    }
+  );
+
+  assert.strictEqual(result.status, 0, result.stderr);
+  assert.match(result.stdout, /45$/);
+});

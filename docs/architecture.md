@@ -172,6 +172,8 @@ Important rules:
 - previous steps remain `COMPLETED`.
 - later steps remain `PENDING`.
 - execution ends as `COMPLETED` or `FAILED`.
+- stale `RUNNING` executions can be recovered by an ADMIN endpoint or manual
+  script.
 
 ## Workflow Domain Model
 
@@ -311,6 +313,33 @@ POST /workflow-executions/:id/process
        set step COMPLETED or FAILED
   -> Set execution COMPLETED or FAILED
 ```
+
+## Worker Recovery
+
+GovFlow detects workflow executions that were claimed by a worker but stayed
+`RUNNING` longer than `WORKFLOW_EXECUTION_RUNNING_TIMEOUT_MINUTES`.
+
+Recovery flow:
+
+```txt
+RUNNING execution older than timeout
+  -> Mark RUNNING execution steps as FAILED
+  -> Preserve previously COMPLETED steps
+  -> Preserve later PENDING steps
+  -> Mark execution as FAILED
+  -> Set result.recoveryReason = "Execution timed out while running"
+  -> Register WORKFLOW_EXECUTION_RECOVERY_FAILED audit log
+```
+
+Recovery can be triggered through:
+
+```txt
+POST /workflow-executions/recovery/stale-running
+npm run workflow:recover-stale
+```
+
+The endpoint is ADMIN-only. The script uses the same service path and is meant
+for manual operational recovery.
 
 ## Workflow Step Handlers
 
@@ -470,6 +499,7 @@ Current route access policy:
 | Workflow executions read | yes | yes | no |
 | Workflow execution steps read | yes | yes | no |
 | Workflow processing | yes | yes | no |
+| Workflow stale recovery | yes | no | no |
 
 OPERATOR can start workflow executions because that role represents operational
 users who trigger processes. OPERATOR cannot administer workflows, define
@@ -673,6 +703,7 @@ WORKFLOW_EXECUTION_CREATED
 WORKFLOW_EXECUTION_PROCESS_STARTED
 WORKFLOW_EXECUTION_PROCESS_COMPLETED
 WORKFLOW_EXECUTION_PROCESS_FAILED
+WORKFLOW_EXECUTION_RECOVERY_FAILED
 ```
 
 Audit registration in domain services uses `safeRegisterAuditLog`, so a failure
@@ -771,6 +802,7 @@ The current automated tests cover:
 - workflow processor service behavior
 - workflow step handler behavior
 - controlled workflow processing failures
+- stale `RUNNING` execution recovery
 
 Useful commands:
 
@@ -843,13 +875,12 @@ Trade-offs:
 
 - Clients must poll `GET /workflow-executions/:id` and
   `GET /workflow-executions/:executionId/steps` for progress.
-- Retry and timeout recovery are not fully implemented yet.
-- A worker crash can still leave an execution in `RUNNING` until recovery logic
-  exists.
+- Clients must trigger recovery through the ADMIN endpoint or manual script;
+  automatic scheduled recovery is not implemented yet.
 
 Future evolution:
 
-- Retry strategy
+- Automatic scheduled recovery
 - Jira transition/comment integration
 - Notification dispatch
 - Step execution logs

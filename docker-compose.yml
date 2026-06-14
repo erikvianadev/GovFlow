@@ -22,6 +22,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD:
+      WORKFLOW_EXECUTION_RUNNING_TIMEOUT_MINUTES: ${WORKFLOW_EXECUTION_RUNNING_TIMEOUT_MINUTES:-30}
     volumes:
       - .:/app
       - /app/node_modules
@@ -46,6 +47,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD:
+      WORKFLOW_EXECUTION_RUNNING_TIMEOUT_MINUTES: ${WORKFLOW_EXECUTION_RUNNING_TIMEOUT_MINUTES:-30}
     volumes:
       - .:/app
       - /app/node_modules

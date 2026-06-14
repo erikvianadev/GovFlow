@@ -4,6 +4,8 @@ const test = require("node:test");
 const {
   buildWorkflowExecutionsFiltersQuery,
   claimPendingExecution,
+  failStaleRunning,
+  findStaleRunning,
   updateStatus,
 } = require("../src/modules/workflow-executions/workflowExecutions.repository");
 
@@ -112,4 +114,72 @@ test("updateStatus updates workflow execution lifecycle fields", async () => {
     result,
   ]);
   assert.strictEqual(updated.status, "COMPLETED");
+});
+
+test("findStaleRunning selects RUNNING executions older than the timeout", async () => {
+  let capturedSql;
+  let capturedValues;
+  const db = {
+    query: async (sql, values) => {
+      capturedSql = sql.replace(/\s+/g, " ").trim().toLowerCase();
+      capturedValues = values;
+      return {
+        rows: [
+          {
+            id: "execution-1",
+            status: "RUNNING",
+          },
+        ],
+      };
+    },
+  };
+
+  const result = await findStaleRunning(
+    { timeoutMinutes: 30, limit: 10 },
+    db
+  );
+
+  assert.match(
+    capturedSql,
+    /where status = 'running' and started_at is not null and started_at <= now\(\) - \(\$1::numeric \* interval '1 minute'\) order by started_at asc limit \$2/
+  );
+  assert.deepStrictEqual(capturedValues, [30, 10]);
+  assert.strictEqual(result.length, 1);
+});
+
+test("failStaleRunning fails only stale RUNNING executions", async () => {
+  let capturedSql;
+  let capturedValues;
+  const db = {
+    query: async (sql, values) => {
+      capturedSql = sql.replace(/\s+/g, " ").trim().toLowerCase();
+      capturedValues = values;
+      return {
+        rows: [
+          {
+            id: "execution-1",
+            status: "FAILED",
+            result: values[2],
+          },
+        ],
+      };
+    },
+  };
+  const recoveryResult = { recoveryReason: "Execution timed out while running" };
+
+  const result = await failStaleRunning(
+    {
+      id: "execution-1",
+      timeoutMinutes: 30,
+      result: recoveryResult,
+    },
+    db
+  );
+
+  assert.match(
+    capturedSql,
+    /update workflow_executions set status = 'failed', completed_at = now\(\), result = \$3, updated_at = now\(\) where id = \$1 and status = 'running' and started_at is not null and started_at <= now\(\) - \(\$2::numeric \* interval '1 minute'\) returning/
+  );
+  assert.deepStrictEqual(capturedValues, ["execution-1", 30, recoveryResult]);
+  assert.strictEqual(result.status, "FAILED");
 });

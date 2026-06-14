@@ -667,6 +667,71 @@ Access: ADMIN, MANAGER.
 Behavior and response are the same as `/process`. New clients should prefer
 `/process`.
 
+### POST /workflow-executions/recovery/stale-running
+
+Recovers stale workflow executions that stayed `RUNNING` longer than the
+configured timeout.
+
+Access: ADMIN.
+
+Headers:
+
+```http
+Authorization: Bearer <accessToken>
+```
+
+Optional body:
+
+```json
+{
+  "timeoutMinutes": 30,
+  "limit": 100
+}
+```
+
+Behavior:
+
+- uses `WORKFLOW_EXECUTION_RUNNING_TIMEOUT_MINUTES` when `timeoutMinutes` is not
+  provided
+- finds `RUNNING` executions whose `started_at` is older than the timeout
+- marks currently `RUNNING` steps as `FAILED`
+- preserves steps already `COMPLETED`
+- preserves later steps still `PENDING`
+- marks the execution as `FAILED`
+- stores `result.recoveryReason = "Execution timed out while running"`
+- registers `WORKFLOW_EXECUTION_RECOVERY_FAILED`
+
+Success response:
+
+```json
+{
+  "success": true,
+  "message": "Stale running workflow executions recovered successfully",
+  "data": {
+    "timeoutMinutes": 30,
+    "scannedCount": 1,
+    "recoveredCount": 1,
+    "recoveredExecutions": [
+      {
+        "id": "uuid",
+        "workflowId": "uuid",
+        "status": "FAILED",
+        "startedAt": "2026-06-14T00:00:00.000Z",
+        "completedAt": "2026-06-14T00:31:00.000Z",
+        "failedRunningStepsCount": 1,
+        "recoveryReason": "Execution timed out while running"
+      }
+    ]
+  }
+}
+```
+
+Manual recovery can also be run inside the API environment:
+
+```bash
+npm run workflow:recover-stale
+```
+
 ## Internal Workflow Processor
 
 The workflow processor is now called by the worker, not by the public
@@ -785,6 +850,7 @@ Audit events:
 - `WORKFLOW_EXECUTION_PROCESS_STARTED`
 - `WORKFLOW_EXECUTION_PROCESS_COMPLETED`
 - `WORKFLOW_EXECUTION_PROCESS_FAILED`
+- `WORKFLOW_EXECUTION_RECOVERY_FAILED`
 
 ## RBAC Summary
 

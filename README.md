@@ -110,6 +110,8 @@ DB_NAME=govflow_db
 
 JWT_SECRET=your_jwt_secret
 JWT_EXPIRES_IN=1h
+
+WORKFLOW_EXECUTION_RUNNING_TIMEOUT_MINUTES=30
 ```
 
 `JWT_SECRET` must be a long, private value in production. When running with
@@ -228,6 +230,18 @@ Job status can be inspected with:
 
 ```http
 GET /workflow-executions/:id/job
+```
+
+Stale worker recovery can be triggered with:
+
+```http
+POST /workflow-executions/recovery/stale-running
+```
+
+or manually inside the API environment:
+
+```bash
+npm run workflow:recover-stale
 ```
 
 ## Workflow Statuses
@@ -378,6 +392,7 @@ WORKFLOW_EXECUTION_CREATED
 WORKFLOW_EXECUTION_PROCESS_STARTED
 WORKFLOW_EXECUTION_PROCESS_COMPLETED
 WORKFLOW_EXECUTION_PROCESS_FAILED
+WORKFLOW_EXECUTION_RECOVERY_FAILED
 ```
 
 ## Testing
@@ -423,4 +438,5 @@ Planned next improvements:
 - Retry strategy
 - Job status tracking
 - Safer recovery for RUNNING executions
+- Worker recovery for stale RUNNING executions
 - Preparation for Jira integration

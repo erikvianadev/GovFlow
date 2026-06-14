@@ -28,6 +28,16 @@ function parseList(value, fallback = []) {
     .filter((item) => item.length > 0);
 }
 
+function parsePositiveNumber(value, fallback) {
+  const parsedValue = Number(value);
+
+  if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+    return fallback;
+  }
+
+  return parsedValue;
+}
+
 // Resolve and validate NODE_ENV. Defaults to "production" (the safe default),
 // so a misconfigured deployment never silently leaks development error details.
 function resolveNodeEnv() {
@@ -74,6 +84,13 @@ const env = {
     host: process.env.REDIS_HOST || "localhost",
     port: Number(process.env.REDIS_PORT) || 6379,
     password: process.env.REDIS_PASSWORD || undefined,
+  },
+
+  workflowExecution: {
+    runningTimeoutMinutes: parsePositiveNumber(
+      process.env.WORKFLOW_EXECUTION_RUNNING_TIMEOUT_MINUTES,
+      30
+    ),
   },
 };
 
