@@ -84,7 +84,9 @@ src/modules/
 
 ### Health Module
 
-Checks API and database status and records each health check as an audit log.
+Checks API, PostgreSQL, and Redis status and records each health check as an
+audit log. The overall status is `ok` only when both PostgreSQL and Redis are
+reachable; otherwise it reports `degraded`.
 
 ### Audit Logs Module
 
@@ -716,8 +718,14 @@ WORKFLOW_EXECUTION_CREATED
 WORKFLOW_EXECUTION_PROCESS_STARTED
 WORKFLOW_EXECUTION_PROCESS_COMPLETED
 WORKFLOW_EXECUTION_PROCESS_FAILED
+WORKFLOW_EXECUTION_PROCESS_SKIPPED
 WORKFLOW_EXECUTION_RECOVERY_FAILED
 ```
+
+`WORKFLOW_EXECUTION_PROCESS_SKIPPED` is recorded when the worker reaches
+finalization but the execution already left `RUNNING` (for example, it was
+recovered as `FAILED`); the worker reports the existing terminal state instead
+of overwriting it.
 
 Audit registration in domain services uses `safeRegisterAuditLog`, so a failure
 to write an audit log does not break the primary business operation.
@@ -911,17 +919,20 @@ A structured logger or OpenTelemetry may be introduced later.
 
 ## Future Architecture Evolution
 
+Redis, BullMQ, background jobs, the retry strategy, and stale `RUNNING`
+execution recovery were delivered in Sprint 5.
+
 Planned improvements:
 
 ```txt
 TypeScript
 Prisma
-Redis
-BullMQ
-Background jobs
-Retry strategy
-RUNNING execution recovery
 Jira integration
+Real workflow step handlers
+External API timeout handling
+Worker metrics
+Queue dashboard / admin tooling
+Automatic scheduled recovery
 Workflow execution step logs
 Domain events
 Frontend dashboard

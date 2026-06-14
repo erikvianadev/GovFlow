@@ -7,16 +7,23 @@ integrations such as Jira.
 
 ## Current Status
 
-Sprint 4 - Workflow Processing Foundation completed.
+Sprint 5 - Asynchronous Workflow Processing Foundation completed.
+
+GovFlow now processes workflow executions asynchronously: the API enqueues a
+BullMQ job, Redis stores the queue state, and a dedicated worker runs the
+workflow processor in the background.
 
 The current backend includes:
 
 - Express API structure
 - PostgreSQL database
-- Dockerized API and database
-- Environment variables
+- Redis infrastructure
+- BullMQ workflow processing queue
+- Dedicated background worker
+- Dockerized API, worker, database, and Redis
+- Environment variables with required-variable validation
 - Database connection pool
-- Health check endpoint
+- Health check endpoint (PostgreSQL + Redis, with degraded reporting)
 - Global error handling
 - Standardized API responses
 - Request logging middleware
@@ -30,12 +37,19 @@ The current backend includes:
 - Authentication middleware
 - Role-based authorization middleware
 - Protected routes
+- Helmet security headers, CORS allowlist, and login rate limiting
 - Workflows module
 - Workflow steps module
 - Workflow executions module
 - Workflow execution steps module
 - Transaction support for multi-step database operations
-- Synchronous workflow processor
+- Asynchronous workflow processor (queued via BullMQ, run by the worker)
+- Atomic PENDING -> RUNNING claim to prevent duplicate processing
+- Guarded terminal transitions to prevent lost updates
+- Job status observability endpoint
+- Retry strategy with exponential backoff
+- Business failure vs technical failure handling
+- Stale RUNNING execution recovery (endpoint + script)
 - Workflow status lifecycle
 - Step-level execution tracking
 - Failure handling for workflow processing
@@ -48,11 +62,15 @@ The current backend includes:
 - Node.js
 - Express
 - PostgreSQL
+- Redis
+- BullMQ
 - Docker
 - Docker Compose
 - JavaScript
 - bcrypt
 - JSON Web Token
+- Helmet
+- express-rate-limit
 
 ## Project Structure
 
@@ -108,14 +126,25 @@ DB_USER=govflow_user
 DB_PASSWORD=govflow_password
 DB_NAME=govflow_db
 
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
+
 JWT_SECRET=your_jwt_secret
 JWT_EXPIRES_IN=1h
+
+CORS_ORIGINS=http://localhost:3000
+
+LOGIN_RATE_LIMIT_WINDOW_MS=900000
+LOGIN_RATE_LIMIT_MAX=10
 
 WORKFLOW_EXECUTION_RUNNING_TIMEOUT_MINUTES=30
 ```
 
-`JWT_SECRET` must be a long, private value in production. When running with
-Docker Compose, the API container uses `DB_HOST=postgres`.
+`JWT_SECRET` and the database variables are required at boot; the process fails
+fast if they are missing. `JWT_SECRET` must be a long, private value in
+production. When running with Docker Compose, the API and worker containers use
+`DB_HOST=postgres` and `REDIS_HOST=redis`.
 
 ## Running With Docker
 
@@ -135,7 +164,21 @@ Expected containers:
 
 ```txt
 govflow_api
+govflow_worker
 govflow_postgres
+govflow_redis
+```
+
+The `govflow_worker` container uses the same image as the API but runs
+`npm run worker:workflow-processing` to consume jobs from the
+`workflow-processing` queue. See [`docs/docker-dev.md`](docs/docker-dev.md) for
+development gotchas (hot reload, rebuilds after `package.json` changes, and
+restarts after `.env` changes).
+
+To run the worker outside Docker:
+
+```bash
+npm run worker:workflow-processing
 ```
 
 ## Database Migrations
@@ -169,7 +212,8 @@ Current migrations:
 
 ## Domain Model
 
-Sprint 4 completed the workflow processing foundation:
+Sprint 4 introduced the workflow processing foundation; Sprint 5 made
+processing asynchronous on top of it:
 
 ```txt
 Workflow
@@ -392,8 +436,13 @@ WORKFLOW_EXECUTION_CREATED
 WORKFLOW_EXECUTION_PROCESS_STARTED
 WORKFLOW_EXECUTION_PROCESS_COMPLETED
 WORKFLOW_EXECUTION_PROCESS_FAILED
+WORKFLOW_EXECUTION_PROCESS_SKIPPED
 WORKFLOW_EXECUTION_RECOVERY_FAILED
 ```
+
+`WORKFLOW_EXECUTION_PROCESS_SKIPPED` is recorded when the worker finishes an
+execution that was already finalized concurrently (for example, recovered as
+`FAILED`), so it reports the existing terminal state instead of overwriting it.
 
 ## Testing
 
@@ -409,9 +458,11 @@ Run tests inside the API container:
 docker exec govflow_api npm test
 ```
 
-Sprint 4 currently has automated coverage for migration contracts, validators,
-repository helpers, route registration, execution step listing, workflow
-processing, simulated handlers, and failure handling.
+Automated coverage includes migration contracts, validators, repository helpers,
+route registration and ordering, execution step listing, asynchronous workflow
+processing, simulated handlers, failure handling, retry/queue payload behavior,
+job status observability, stale RUNNING execution recovery, and the guarded
+finalization that protects against recovery/worker lost updates.
 
 ## Useful Commands
 
@@ -419,24 +470,27 @@ processing, simulated handlers, and failure handling.
 docker compose up --build
 docker compose down
 docker compose logs -f api
+docker compose logs -f worker
 docker compose logs -f postgres
+docker compose logs -f redis
 docker exec -it govflow_postgres psql -U govflow_user -d govflow_db
 docker exec -it govflow_api npm run db:migrate
 docker exec -it govflow_api npm run db:seed
+docker exec -it govflow_api npm run workflow:recover-stale
 docker exec govflow_api npm test
 ```
 
 ## Next Steps
 
-Sprint 5 will focus on asynchronous processing foundations.
+Sprint 5 delivered the asynchronous processing foundation (Redis, BullMQ, a
+dedicated worker, retries, job observability, and stale RUNNING recovery). The
+next major evolution is external integration.
 
 Planned next improvements:
 
-- Redis
-- BullMQ
-- Background workers
-- Retry strategy
-- Job status tracking
-- Safer recovery for RUNNING executions
-- Worker recovery for stale RUNNING executions
-- Preparation for Jira integration
+- Jira integration (transitions and comments)
+- Real workflow step handlers replacing the simulated ones
+- External API timeout handling
+- Worker metrics and a queue dashboard/admin tooling
+- Automatic scheduled recovery for stale RUNNING executions
+- Optional removal of the temporary `/enqueue` alias

@@ -63,10 +63,32 @@ Authorization: Bearer <accessToken>
 
 ### GET /health
 
-Checks API and database status. This public endpoint records a
-`HEALTH_CHECK_EXECUTED` audit log with the database status in its metadata.
+Checks API, PostgreSQL, and Redis status. This public endpoint records a
+`HEALTH_CHECK_EXECUTED` audit log with the database and Redis status in its
+metadata.
+
+The overall `status` is `ok` only when both PostgreSQL and Redis are reachable;
+otherwise it reports `degraded` instead of crashing the API.
 
 Access: public.
+
+Example response:
+
+```json
+{
+  "success": true,
+  "message": "Health status retrieved successfully",
+  "data": {
+    "status": "ok",
+    "service": "GovFlow API",
+    "timestamp": "2026-06-14T00:00:00.000Z",
+    "services": {
+      "database": { "status": "ok" },
+      "redis": { "status": "ok" }
+    }
+  }
+}
+```
 
 ## Authentication
 
