@@ -22,6 +22,14 @@ test("workflow processor route is registered for ADMIN and MANAGER", () => {
   );
   assert.match(
     workflowProcessorRoutes,
+    /router\.post\(\s*"\/workflow-executions\/:id\/enqueue"/
+  );
+  assert.match(
+    workflowProcessorRoutes,
+    /workflowProcessingQueueController\.enqueue/
+  );
+  assert.match(
+    workflowProcessorRoutes,
     /roleMiddleware\(\["ADMIN", "MANAGER"\]\)/
   );
   assert.match(
