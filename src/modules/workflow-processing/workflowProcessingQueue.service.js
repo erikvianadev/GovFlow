@@ -35,7 +35,7 @@ async function enqueueWorkflowExecutionProcessing({ executionId, requestedBy }) 
       requestedBy,
     },
     {
-      jobId: `workflow-execution:${executionId}`,
+      jobId: `workflow-execution-${executionId}`,
     }
   );
 
