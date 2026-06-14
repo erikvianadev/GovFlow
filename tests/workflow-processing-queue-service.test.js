@@ -49,6 +49,8 @@ function loadService({
     findById: async () => execution,
   });
   mockModule(workflowProcessingQueuePath, {
+    buildWorkflowProcessingJobId: (executionId) =>
+      `workflow-execution-${executionId}`,
     workflowProcessingQueue: {
       add: async (name, data, options) => {
         calls.queueAdds.push({ name, data, options });

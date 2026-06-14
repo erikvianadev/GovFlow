@@ -1,6 +1,7 @@
 const AppError = require("../../errors/AppError");
 const workflowExecutionsRepository = require("../workflow-executions/workflowExecutions.repository");
 const {
+  buildWorkflowProcessingJobId,
   workflowProcessingQueue,
 } = require("../../queues/workflowProcessing.queue");
 const {
@@ -35,7 +36,7 @@ async function enqueueWorkflowExecutionProcessing({ executionId, processedBy }) 
       processedBy,
     },
     {
-      jobId: `workflow-execution-${executionId}`,
+      jobId: buildWorkflowProcessingJobId(executionId),
     }
   );
 

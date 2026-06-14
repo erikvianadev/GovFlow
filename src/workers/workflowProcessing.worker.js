@@ -31,6 +31,12 @@ function createWorkflowProcessingWorker() {
         processedBy,
       });
 
+      if (result.status === "FAILED") {
+        throw new Error(
+          result.result?.failedStep?.error || "Workflow execution failed"
+        );
+      }
+
       return {
         executionId,
         status: result.status,

@@ -578,6 +578,77 @@ Clients should follow processing progress with:
 ```http
 GET /workflow-executions/:id
 GET /workflow-executions/:executionId/steps
+GET /workflow-executions/:id/job
+```
+
+### GET /workflow-executions/:id/job
+
+Returns BullMQ job observability for the workflow execution processing job.
+
+Access: ADMIN, MANAGER.
+
+Headers:
+
+```http
+Authorization: Bearer <accessToken>
+```
+
+Behavior:
+
+- validates the execution ID
+- requires the workflow execution to exist
+- uses deterministic job ID `workflow-execution-<executionId>`
+- returns BullMQ job state when the job exists
+- returns state `not_found` when the execution exists but the queue job does not
+
+Possible states:
+
+```txt
+waiting
+active
+completed
+failed
+delayed
+paused
+not_found
+```
+
+Success response:
+
+```json
+{
+  "success": true,
+  "message": "Workflow execution job status retrieved successfully",
+  "data": {
+    "executionId": "uuid",
+    "jobId": "workflow-execution-uuid",
+    "queueName": "workflow-processing",
+    "state": "completed",
+    "attemptsMade": 1,
+    "failedReason": null,
+    "processedOn": "2026-06-14T00:00:00.000Z",
+    "finishedOn": "2026-06-14T00:00:03.000Z"
+  }
+}
+```
+
+No job found response:
+
+```json
+{
+  "success": true,
+  "message": "Workflow execution job status retrieved successfully",
+  "data": {
+    "executionId": "uuid",
+    "jobId": "workflow-execution-uuid",
+    "queueName": "workflow-processing",
+    "state": "not_found",
+    "attemptsMade": 0,
+    "failedReason": null,
+    "processedOn": null,
+    "finishedOn": null
+  }
+}
 ```
 
 ### POST /workflow-executions/:id/enqueue

@@ -27,6 +27,10 @@ const workflowProcessorServicePath = path.join(
   __dirname,
   "../src/modules/workflow-processing/workflowProcessor.service.js"
 );
+const workflowProcessingJobServicePath = path.join(
+  __dirname,
+  "../src/modules/workflow-processing/workflowProcessingJob.service.js"
+);
 const authMiddlewarePath = path.join(
   __dirname,
   "../src/middlewares/auth.middleware.js"
@@ -86,6 +90,7 @@ async function withTestServer(callback) {
     workflowProcessingQueueControllerPath,
     workflowProcessingQueueServicePath,
     workflowProcessorServicePath,
+    workflowProcessingJobServicePath,
     authMiddlewarePath,
     usersRepositoryPath,
   ].forEach((modulePath) => delete require.cache[modulePath]);
@@ -109,6 +114,9 @@ async function withTestServer(callback) {
     processWorkflowExecution: async () => {
       throw new Error("/process must enqueue jobs instead of processing");
     },
+  });
+  mockModule(workflowProcessingJobServicePath, {
+    getWorkflowExecutionProcessingJobStatus: async () => ({}),
   });
 
   const app = require(appPath);

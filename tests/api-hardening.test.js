@@ -22,6 +22,10 @@ const workflowProcessingQueueServicePath = path.join(
   __dirname,
   "../src/modules/workflow-processing/workflowProcessingQueue.service.js"
 );
+const workflowProcessingJobServicePath = path.join(
+  __dirname,
+  "../src/modules/workflow-processing/workflowProcessingJob.service.js"
+);
 
 function mockModule(modulePath, exports) {
   delete require.cache[modulePath];
@@ -40,12 +44,16 @@ async function withTestServer(callback, { mocks = false } = {}) {
     authRoutesPath,
     rateLimitMiddlewarePath,
     workflowProcessingQueueServicePath,
+    workflowProcessingJobServicePath,
   ].forEach((modulePath) => delete require.cache[modulePath]);
 
   // Avoid loading the real BullMQ queue (which opens a Redis connection that
   // keeps the process alive) since the queue is not under test here.
   mockModule(workflowProcessingQueueServicePath, {
     enqueueWorkflowExecutionProcessing: async () => ({}),
+  });
+  mockModule(workflowProcessingJobServicePath, {
+    getWorkflowExecutionProcessingJobStatus: async () => ({}),
   });
 
   if (mocks) {

@@ -275,6 +275,7 @@ Protected routes use role-based access control.
 | `POST /workflows/:workflowId/executions` | ADMIN, MANAGER, OPERATOR |
 | `GET /workflow-executions` | ADMIN, MANAGER |
 | `GET /workflow-executions/:id` | ADMIN, MANAGER |
+| `GET /workflow-executions/:id/job` | ADMIN, MANAGER |
 | `GET /workflow-executions/:executionId/steps` | ADMIN, MANAGER |
 | `POST /workflow-executions/:id/process` | ADMIN, MANAGER |
 

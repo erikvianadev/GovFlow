@@ -164,6 +164,7 @@ Important rules:
 - the API adds a BullMQ job and returns `202 Accepted` with status `QUEUED`.
 - the worker consumes jobs from Redis.
 - the worker calls the internal workflow processor.
+- `GET /workflow-executions/:id/job` exposes queue job state for observability.
 - execution status moves to `RUNNING` before step processing.
 - steps are processed in `step_order ASC`.
 - successful steps move to `COMPLETED`.
@@ -244,6 +245,20 @@ Client
   -> Workflow Processor
   -> PostgreSQL
 ```
+
+Queue observability:
+
+```txt
+GET /workflow-executions/:id/job
+  -> Validate execution
+  -> Ensure workflow_execution exists
+  -> Build job ID workflow-execution-<executionId>
+  -> Read BullMQ job
+  -> Return waiting | active | completed | failed | delayed | paused | not_found
+```
+
+Completed jobs are retained in the queue so the API can report `completed`
+instead of immediately returning `not_found`.
 
 Current creation flow:
 

@@ -121,7 +121,7 @@ test("createWorkflowProcessingWorker registers completed, failed, and error hand
 test("workflow processing worker calls the processor with executionId and processedBy", async () => {
   const { workerModule, calls } = loadWorker({
     processorResult: {
-      status: "FAILED",
+      status: "COMPLETED",
     },
   });
 
@@ -143,8 +143,34 @@ test("workflow processing worker calls the processor with executionId and proces
   ]);
   assert.deepStrictEqual(result, {
     executionId: validExecutionId,
-    status: "FAILED",
+    status: "COMPLETED",
   });
+});
+
+test("workflow processing worker fails the job when the execution fails", async () => {
+  const { workerModule, calls } = loadWorker({
+    processorResult: {
+      status: "FAILED",
+      result: {
+        failedStep: {
+          error: "Simulated async processor failure",
+        },
+      },
+    },
+  });
+
+  workerModule.createWorkflowProcessingWorker();
+
+  await assert.rejects(
+    calls.workers[0].processor({
+      id: "job-1",
+      data: {
+        executionId: validExecutionId,
+        processedBy: validUserId,
+      },
+    }),
+    /Simulated async processor failure/
+  );
 });
 
 test("workflow processing worker requires executionId in job data", async () => {
