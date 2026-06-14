@@ -5,6 +5,12 @@ services:
     restart: always
     ports:
       - "3000:3000"
+    # env_file loads secrets/config (JWT_SECRET, CORS_ORIGINS, rate limits) from
+    # .env. The environment block below overrides host-specific values so the
+    # container reaches the Docker network services (postgres/redis) regardless
+    # of what .env points to for local use.
+    env_file:
+      - .env
     environment:
       PORT: 3000
       NODE_ENV: development
