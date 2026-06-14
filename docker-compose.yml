@@ -29,6 +29,30 @@ services:
       - postgres
       - redis
 
+  worker:
+    build: .
+    container_name: govflow_worker
+    restart: always
+    command: npm run worker:workflow-processing
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: development
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: govflow_user
+      DB_PASSWORD: govflow_password
+      DB_NAME: govflow_db
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD:
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      - postgres
+      - redis
+
   postgres:
     image: postgres:16
     container_name: govflow_postgres

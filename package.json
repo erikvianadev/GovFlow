@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon -L src/server.js",
+    "worker:workflow-processing": "node src/workers/startWorkflowProcessingWorker.js",
     "test": "node --test",
     "db:migrate": "node scripts/runMigrations.js",
     "db:seed": "node scripts/runSeeds.js"
