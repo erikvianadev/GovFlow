@@ -92,6 +92,14 @@ const env = {
       30
     ),
   },
+
+  jira: {
+    enabled: process.env.JIRA_ENABLED === "true",
+    baseUrl: process.env.JIRA_BASE_URL,
+    email: process.env.JIRA_EMAIL,
+    apiToken: process.env.JIRA_API_TOKEN,
+    timeoutMs: Number(process.env.JIRA_TIMEOUT_MS) || 10000,
+  },
 };
 
 module.exports = env;

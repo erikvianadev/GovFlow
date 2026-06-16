@@ -8,6 +8,7 @@ const authRoutes = require("../modules/auth/auth.routes");
 const workflowsRoutes = require("../modules/workflows/workflows.routes");
 const workflowExecutionsGlobalRoutes = require("../modules/workflow-executions/workflowExecutions.global.routes");
 const workflowProcessorRoutes = require("../modules/workflow-processing/workflowProcessor.routes");
+const jiraRoutes = require("../modules/jira/jira.routes");
 
 const router = Router();
 
@@ -18,6 +19,7 @@ router.use("/users", usersRoutes);
 router.use("/auth", authRoutes);
 router.use("/workflows", workflowsRoutes);
 router.use("/workflow-executions", workflowExecutionsGlobalRoutes);
+router.use("/jira", jiraRoutes);
 router.use("/", workflowProcessorRoutes);
 
 module.exports = router;
