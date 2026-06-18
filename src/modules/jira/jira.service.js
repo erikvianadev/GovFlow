@@ -44,7 +44,7 @@ function buildJiraCommentBody(text) {
   };
 }
 
-function assertJiraCommentIntegrationReady() {
+function assertJiraIntegrationReady() {
   if (!jiraClient) {
     throw new JiraTechnicalError("Jira client not available");
   }
@@ -58,25 +58,31 @@ function assertJiraCommentIntegrationReady() {
   }
 }
 
-function normalizeJiraError(error) {
+function normalizeJiraError(error, operation) {
   const status = error.response?.status;
 
-  if ([400, 403, 404].includes(status)) {
+  if ([400, 401, 403, 404].includes(status)) {
     return new JiraBusinessError(
-      `Jira rejected comment request with status ${status}`,
+      `Jira rejected ${operation} request with status ${status}`,
       status
     );
   }
 
   if (status === 429 || status >= 500 || error.code || !error.response) {
-    return new JiraTechnicalError("Temporary Jira comment request failure", error);
+    return new JiraTechnicalError(
+      `Temporary Jira ${operation} request failure`,
+      error
+    );
   }
 
-  return new JiraTechnicalError("Unexpected Jira comment request failure", error);
+  return new JiraTechnicalError(
+    `Unexpected Jira ${operation} request failure`,
+    error
+  );
 }
 
 async function addCommentToIssue({ issueKey, comment }) {
-  assertJiraCommentIntegrationReady();
+  assertJiraIntegrationReady();
 
   try {
     const response = await jiraClient.post(
@@ -93,7 +99,30 @@ async function addCommentToIssue({ issueKey, comment }) {
       created: response.created,
     };
   } catch (error) {
-    throw normalizeJiraError(error);
+    throw normalizeJiraError(error, "comment");
+  }
+}
+
+async function transitionIssue({ issueKey, transitionId }) {
+  assertJiraIntegrationReady();
+
+  try {
+    await jiraClient.post(
+      `/rest/api/3/issue/${encodeURIComponent(issueKey)}/transitions`,
+      {
+        transition: {
+          id: transitionId,
+        },
+      }
+    );
+
+    return {
+      issueKey,
+      transitionId,
+      status: "completed",
+    };
+  } catch (error) {
+    throw normalizeJiraError(error, "transition");
   }
 }
 
@@ -101,4 +130,5 @@ module.exports = {
   addCommentToIssue,
   buildJiraCommentBody,
   testConnection,
+  transitionIssue,
 };

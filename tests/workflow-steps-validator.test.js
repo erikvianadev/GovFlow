@@ -3,8 +3,11 @@ const test = require("node:test");
 
 const {
   JIRA_COMMENT_MAX_LENGTH,
+  JIRA_TRANSITION_ID_MAX_LENGTH,
+  JIRA_TRANSITION_ISSUE_KEY_MAX_LENGTH,
   validateCreateWorkflowStep,
   validateJiraCommentConfiguration,
+  validateJiraTransitionConfiguration,
   validateWorkflowId,
   VALID_ACTION_TYPES,
 } = require("../src/validators/workflowSteps.validator");
@@ -37,11 +40,100 @@ test("validateCreateWorkflowStep accepts every supported action type", () => {
               issueKey: "ABC-123",
               comment: "GovFlow async workflow test",
             }
+          : actionType === "JIRA_TRANSITION"
+          ? {
+              issueKey: "ABC-123",
+              transitionId: "11",
+            }
           : undefined,
     });
 
     assert.deepStrictEqual(errors, []);
   }
+});
+
+test("validateCreateWorkflowStep validates JIRA_TRANSITION configuration", () => {
+  assert.deepStrictEqual(
+    validateCreateWorkflowStep({
+      name: "Transition Jira issue",
+      stepOrder: 1,
+      actionType: "JIRA_TRANSITION",
+      configuration: {
+        issueKey: "ABC-123",
+        transitionId: "11",
+      },
+    }),
+    []
+  );
+
+  assert.deepStrictEqual(
+    validateCreateWorkflowStep({
+      name: "Transition Jira issue",
+      stepOrder: 1,
+      actionType: "JIRA_TRANSITION",
+      configuration: {
+        issueKey: "",
+        transitionId: "",
+      },
+    }),
+    [
+      {
+        field: "configuration.issueKey",
+        message: "Jira issue key cannot be empty",
+      },
+      {
+        field: "configuration.transitionId",
+        message: "Jira transition ID cannot be empty",
+      },
+    ]
+  );
+});
+
+test("validateJiraTransitionConfiguration rejects missing and invalid fields", () => {
+  assert.deepStrictEqual(validateJiraTransitionConfiguration(null), [
+    {
+      field: "configuration",
+      message: "JIRA_TRANSITION configuration is required",
+    },
+  ]);
+
+  assert.deepStrictEqual(
+    validateJiraTransitionConfiguration({
+      issueKey: "x".repeat(JIRA_TRANSITION_ISSUE_KEY_MAX_LENGTH + 1),
+      transitionId: "x".repeat(JIRA_TRANSITION_ID_MAX_LENGTH + 1),
+    }),
+    [
+      {
+        field: "configuration.issueKey",
+        message: `Jira issue key must be at most ${JIRA_TRANSITION_ISSUE_KEY_MAX_LENGTH} characters`,
+      },
+      {
+        field: "configuration.transitionId",
+        message: `Jira transition ID must be at most ${JIRA_TRANSITION_ID_MAX_LENGTH} characters`,
+      },
+      {
+        field: "configuration.transitionId",
+        message: "Jira transition ID must be numeric",
+      },
+    ]
+  );
+
+  assert.deepStrictEqual(
+    validateJiraTransitionConfiguration({
+      issueKey: 123,
+      transitionId: 11,
+    }),
+    [
+      {
+        field: "configuration.issueKey",
+        message: "Jira issue key must be a string",
+      },
+      {
+        field: "configuration.transitionId",
+        message: "Jira transition ID must be a string",
+      },
+    ]
+  );
 });
 
 test("validateCreateWorkflowStep validates JIRA_COMMENT configuration", () => {

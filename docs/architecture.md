@@ -362,8 +362,8 @@ for manual operational recovery.
 
 ## Workflow Step Handlers
 
-Workflow step processing is routed through internal handlers. Most handlers are
-still simulated; `JIRA_COMMENT` calls the real Jira Cloud API.
+Workflow step processing is routed through internal handlers. `JIRA_COMMENT`
+and `JIRA_TRANSITION` call the real Jira Cloud API.
 
 Supported action types:
 
@@ -380,7 +380,7 @@ Current behavior:
 | --- | --- |
 | MANUAL | Simulated completion |
 | NOTIFICATION | Simulated completion |
-| JIRA_TRANSITION | Simulated completion |
+| JIRA_TRANSITION | Executes a real Jira issue transition |
 | JIRA_COMMENT | Creates a real Jira issue comment |
 
 `JIRA_COMMENT` expects this step configuration:
@@ -410,6 +410,37 @@ execution result:
 Jira 400, 403, 404, disabled integration, and invalid configuration are
 business failures. Timeouts, network errors, 429, and 5xx are retryable
 technical failures.
+
+`JIRA_TRANSITION` expects this step configuration:
+
+```json
+{
+  "issueKey": "ABC-123",
+  "transitionId": "11"
+}
+```
+
+The handler validates `issueKey` and `transitionId`, calls Jira through
+`/rest/api/3/issue/{issueKey}/transitions`, and stores this output in the
+execution result:
+
+```json
+{
+  "provider": "jira",
+  "operation": "transition",
+  "issueKey": "ABC-123",
+  "transitionId": "11",
+  "status": "completed"
+}
+```
+
+Jira 400, 401, 403, 404, disabled integration, and invalid configuration are
+business failures. Timeouts, network errors, 429, and 5xx are retryable
+technical failures.
+
+`JIRA_TRANSITION` does not yet implement full idempotency. If the issue already
+moved to another status, Jira can reject the same `transitionId` because it is
+no longer available for the current workflow status.
 
 ## Workflow Failure Handling
 
@@ -755,6 +786,9 @@ WORKFLOW_EXECUTION_RECOVERY_FAILED
 JIRA_COMMENT_ATTEMPTED
 JIRA_COMMENT_COMPLETED
 JIRA_COMMENT_FAILED
+JIRA_TRANSITION_ATTEMPTED
+JIRA_TRANSITION_COMPLETED
+JIRA_TRANSITION_FAILED
 ```
 
 `WORKFLOW_EXECUTION_PROCESS_SKIPPED` is recorded when the worker reaches

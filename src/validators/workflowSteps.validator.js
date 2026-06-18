@@ -5,6 +5,8 @@ const VALID_ACTION_TYPES = [
   "NOTIFICATION",
 ];
 const JIRA_COMMENT_MAX_LENGTH = 5000;
+const JIRA_TRANSITION_ISSUE_KEY_MAX_LENGTH = 100;
+const JIRA_TRANSITION_ID_MAX_LENGTH = 50;
 
 function validateCreateWorkflowStep(payload) {
   const errors = [];
@@ -23,6 +25,14 @@ function validateJiraCommentConfiguration(configuration) {
   const errors = [];
 
   validateJiraCommentFields(configuration, errors);
+
+  return errors;
+}
+
+function validateJiraTransitionConfiguration(configuration) {
+  const errors = [];
+
+  validateJiraTransitionFields(configuration, errors);
 
   return errors;
 }
@@ -154,11 +164,13 @@ function validateConfiguration(configuration, errors) {
 }
 
 function validateActionConfiguration(actionType, configuration, errors) {
-  if (actionType !== "JIRA_COMMENT") {
-    return;
+  if (actionType === "JIRA_COMMENT") {
+    validateJiraCommentFields(configuration, errors);
   }
 
-  validateJiraCommentFields(configuration, errors);
+  if (actionType === "JIRA_TRANSITION") {
+    validateJiraTransitionFields(configuration, errors);
+  }
 }
 
 function validateJiraCommentFields(configuration, errors) {
@@ -195,6 +207,65 @@ function validateJiraCommentFields(configuration, errors) {
     errors.push({
       field: "configuration.comment",
       message: `Jira comment must be at most ${JIRA_COMMENT_MAX_LENGTH} characters`,
+    });
+  }
+}
+
+function validateJiraTransitionFields(configuration, errors) {
+  if (configuration === undefined || configuration === null) {
+    errors.push({
+      field: "configuration",
+      message: "JIRA_TRANSITION configuration is required",
+    });
+    return;
+  }
+
+  if (typeof configuration !== "object" || Array.isArray(configuration)) {
+    return;
+  }
+
+  validateRequiredNonEmptyString(
+    configuration.issueKey,
+    "configuration.issueKey",
+    "Jira issue key",
+    errors
+  );
+
+  validateRequiredNonEmptyString(
+    configuration.transitionId,
+    "configuration.transitionId",
+    "Jira transition ID",
+    errors
+  );
+
+  if (
+    typeof configuration.issueKey === "string" &&
+    configuration.issueKey.length > JIRA_TRANSITION_ISSUE_KEY_MAX_LENGTH
+  ) {
+    errors.push({
+      field: "configuration.issueKey",
+      message: `Jira issue key must be at most ${JIRA_TRANSITION_ISSUE_KEY_MAX_LENGTH} characters`,
+    });
+  }
+
+  if (
+    typeof configuration.transitionId === "string" &&
+    configuration.transitionId.length > JIRA_TRANSITION_ID_MAX_LENGTH
+  ) {
+    errors.push({
+      field: "configuration.transitionId",
+      message: `Jira transition ID must be at most ${JIRA_TRANSITION_ID_MAX_LENGTH} characters`,
+    });
+  }
+
+  if (
+    typeof configuration.transitionId === "string" &&
+    configuration.transitionId.trim().length > 0 &&
+    !/^\d+$/.test(configuration.transitionId.trim())
+  ) {
+    errors.push({
+      field: "configuration.transitionId",
+      message: "Jira transition ID must be numeric",
     });
   }
 }
@@ -259,7 +330,10 @@ function isValidUuid(value) {
 module.exports = {
   validateCreateWorkflowStep,
   validateJiraCommentConfiguration,
+  validateJiraTransitionConfiguration,
   validateWorkflowId,
   JIRA_COMMENT_MAX_LENGTH,
+  JIRA_TRANSITION_ID_MAX_LENGTH,
+  JIRA_TRANSITION_ISSUE_KEY_MAX_LENGTH,
   VALID_ACTION_TYPES,
 };

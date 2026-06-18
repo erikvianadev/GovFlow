@@ -23,6 +23,16 @@ const jiraCommentStep = {
     comment: "Workflow processed by GovFlow",
   },
 };
+const jiraTransitionStep = {
+  id: "execution-step-2",
+  execution_id: execution.id,
+  step_id: "workflow-step-2",
+  action_type: "JIRA_TRANSITION",
+  configuration: {
+    issueKey: "ABC-123",
+    transitionId: "11",
+  },
+};
 
 function mockModule(modulePath, exports) {
   delete require.cache[modulePath];
@@ -34,7 +44,7 @@ function mockModule(modulePath, exports) {
   };
 }
 
-function loadHandlers({ addCommentToIssue } = {}) {
+function loadHandlers({ addCommentToIssue, transitionIssue } = {}) {
   const calls = {
     jira: [],
     audit: [],
@@ -57,6 +67,17 @@ function loadHandlers({ addCommentToIssue } = {}) {
           created: "2026-06-16T10:00:00.000Z",
         };
       }),
+    transitionIssue:
+      transitionIssue ||
+      (async (payload) => {
+        calls.jira.push(payload);
+
+        return {
+          issueKey: payload.issueKey,
+          transitionId: payload.transitionId,
+          status: "completed",
+        };
+      }),
   });
   mockModule(safeAuditLogPath, {
     safeRegisterAuditLog: async (payload) => {
@@ -72,7 +93,7 @@ function loadHandlers({ addCommentToIssue } = {}) {
 
 test("handleWorkflowStep completes simulated non-Jira-comment action types", async () => {
   const { handlers } = loadHandlers();
-  const actionTypes = ["MANUAL", "NOTIFICATION", "JIRA_TRANSITION"];
+  const actionTypes = ["MANUAL", "NOTIFICATION"];
 
   for (const actionType of actionTypes) {
     const result = await handlers.handleWorkflowStep({
@@ -83,6 +104,142 @@ test("handleWorkflowStep completes simulated non-Jira-comment action types", asy
     assert.deepStrictEqual(result.output.simulated, true);
     assert.strictEqual(result.output.actionType, actionType);
   }
+});
+
+test("JIRA_TRANSITION calls Jira and returns standardized output", async () => {
+  const { handlers, calls } = loadHandlers();
+
+  const result = await handlers.handleWorkflowStepWithContext({
+    step: jiraTransitionStep,
+    execution,
+  });
+
+  assert.strictEqual(result.status, "COMPLETED");
+  assert.deepStrictEqual(result.output, {
+    provider: "jira",
+    operation: "transition",
+    issueKey: "ABC-123",
+    transitionId: "11",
+    status: "completed",
+  });
+  assert.strictEqual(calls.jira.length, 1);
+  assert.deepStrictEqual(calls.jira[0], {
+    issueKey: "ABC-123",
+    transitionId: "11",
+  });
+  assert.deepStrictEqual(
+    calls.audit.map((entry) => entry.action),
+    ["JIRA_TRANSITION_ATTEMPTED", "JIRA_TRANSITION_COMPLETED"]
+  );
+});
+
+test("JIRA_TRANSITION trims issueKey and transitionId before calling Jira", async () => {
+  const { handlers, calls } = loadHandlers();
+
+  await handlers.handleWorkflowStepWithContext({
+    step: {
+      ...jiraTransitionStep,
+      configuration: {
+        issueKey: " ABC-123 ",
+        transitionId: " 11 ",
+      },
+    },
+    execution,
+  });
+
+  assert.deepStrictEqual(calls.jira[0], {
+    issueKey: "ABC-123",
+    transitionId: "11",
+  });
+});
+
+test("JIRA_TRANSITION requires issueKey", async () => {
+  const { handlers, calls } = loadHandlers();
+
+  await assert.rejects(
+    handlers.handleWorkflowStepWithContext({
+      step: {
+        ...jiraTransitionStep,
+        configuration: {
+          transitionId: "11",
+        },
+      },
+      execution,
+    }),
+    (error) =>
+      error.name === "JiraBusinessError" &&
+      error.isBusinessFailure === true &&
+      error.message === "Invalid JIRA_TRANSITION configuration"
+  );
+  assert.strictEqual(calls.jira.length, 0);
+  assert.deepStrictEqual(
+    calls.audit.map((entry) => entry.action),
+    ["JIRA_TRANSITION_ATTEMPTED", "JIRA_TRANSITION_FAILED"]
+  );
+});
+
+test("JIRA_TRANSITION requires transitionId", async () => {
+  const { handlers, calls } = loadHandlers();
+
+  await assert.rejects(
+    handlers.handleWorkflowStepWithContext({
+      step: {
+        ...jiraTransitionStep,
+        configuration: {
+          issueKey: "ABC-123",
+        },
+      },
+      execution,
+    }),
+    (error) =>
+      error.name === "JiraBusinessError" &&
+      error.isBusinessFailure === true &&
+      error.message === "Invalid JIRA_TRANSITION configuration"
+  );
+  assert.strictEqual(calls.jira.length, 0);
+});
+
+test("JIRA_TRANSITION rejects non-numeric transitionId", async () => {
+  const { handlers, calls } = loadHandlers();
+
+  await assert.rejects(
+    handlers.handleWorkflowStepWithContext({
+      step: {
+        ...jiraTransitionStep,
+        configuration: {
+          issueKey: "ABC-123",
+          transitionId: "start-progress",
+        },
+      },
+      execution,
+    }),
+    (error) =>
+      error.name === "JiraBusinessError" &&
+      error.isBusinessFailure === true
+  );
+  assert.strictEqual(calls.jira.length, 0);
+});
+
+test("JIRA_TRANSITION propagates technical Jira errors for retry", async () => {
+  const technicalError = new Error("Temporary Jira transition request failure");
+  technicalError.isRetryable = true;
+  const { handlers, calls } = loadHandlers({
+    transitionIssue: async () => {
+      throw technicalError;
+    },
+  });
+
+  await assert.rejects(
+    handlers.handleWorkflowStepWithContext({
+      step: jiraTransitionStep,
+      execution,
+    }),
+    (error) => error === technicalError && error.isRetryable === true
+  );
+  assert.deepStrictEqual(
+    calls.audit.map((entry) => entry.action),
+    ["JIRA_TRANSITION_ATTEMPTED", "JIRA_TRANSITION_FAILED"]
+  );
 });
 
 test("handleWorkflowStep rejects unsupported action types", async () => {

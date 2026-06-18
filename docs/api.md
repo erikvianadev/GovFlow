@@ -419,6 +419,22 @@ Validation rules:
 | configuration.issueKey | yes | string, not empty |
 | configuration.comment | yes | string, not empty, max 5000 characters |
 
+For `JIRA_TRANSITION`, `configuration` is required and must use:
+
+```json
+{
+  "issueKey": "ABC-123",
+  "transitionId": "11"
+}
+```
+
+Validation rules:
+
+| Field | Required | Rule |
+| --- | ---: | --- |
+| configuration.issueKey | yes | string, trim not empty, max 100 characters |
+| configuration.transitionId | yes | string, trim not empty, numeric, max 50 characters |
+
 ## Workflow Executions
 
 ### POST /workflows/:workflowId/executions
@@ -827,6 +843,19 @@ Completed execution shape:
             "commentId": "10001",
             "status": "completed"
           }
+        },
+        {
+          "executionStepId": "uuid",
+          "stepId": "uuid",
+          "stepOrder": 2,
+          "actionType": "JIRA_TRANSITION",
+          "output": {
+            "provider": "jira",
+            "operation": "transition",
+            "issueKey": "ABC-123",
+            "transitionId": "11",
+            "status": "completed"
+          }
         }
       ]
     }
@@ -910,6 +939,12 @@ Audit events:
 - `JIRA_COMMENT_ATTEMPTED`
 - `JIRA_COMMENT_COMPLETED`
 - `JIRA_COMMENT_FAILED`
+
+`JIRA_TRANSITION` step processing also registers:
+
+- `JIRA_TRANSITION_ATTEMPTED`
+- `JIRA_TRANSITION_COMPLETED`
+- `JIRA_TRANSITION_FAILED`
 
 ## RBAC Summary
 

@@ -97,6 +97,51 @@ test("addCommentToIssue posts ADF body to Jira comment endpoint", async () => {
   });
 });
 
+test("transitionIssue posts transition payload to Jira transitions endpoint", async () => {
+  const { service, calls } = loadService({
+    post: async (...args) => {
+      calls.post.push(args);
+
+      return {};
+    },
+  });
+
+  const result = await service.transitionIssue({
+    issueKey: "ABC-123",
+    transitionId: "11",
+  });
+
+  assert.deepStrictEqual(result, {
+    issueKey: "ABC-123",
+    transitionId: "11",
+    status: "completed",
+  });
+  assert.strictEqual(calls.post.length, 1);
+  assert.strictEqual(calls.post[0][0], "/rest/api/3/issue/ABC-123/transitions");
+  assert.deepStrictEqual(calls.post[0][1], {
+    transition: {
+      id: "11",
+    },
+  });
+});
+
+test("transitionIssue encodes issue keys in Jira transitions endpoint", async () => {
+  const { service, calls } = loadService({
+    post: async (...args) => {
+      calls.post.push(args);
+
+      return {};
+    },
+  });
+
+  await service.transitionIssue({
+    issueKey: "ABC 123",
+    transitionId: "11",
+  });
+
+  assert.strictEqual(calls.post[0][0], "/rest/api/3/issue/ABC%20123/transitions");
+});
+
 test("addCommentToIssue treats disabled Jira as business failure", async () => {
   const { service } = loadService({
     env: {
@@ -154,6 +199,74 @@ test("addCommentToIssue maps 429 and network failures to technical failures", as
       service.addCommentToIssue({
         issueKey: "ABC-123",
         comment: "Comment",
+      }),
+      (error) =>
+        error.name === "JiraTechnicalError" &&
+        error.isRetryable === true
+    );
+  }
+});
+
+test("transitionIssue treats disabled Jira as business failure", async () => {
+  const { service } = loadService({
+    env: {
+      enabled: false,
+    },
+  });
+
+  await assert.rejects(
+    service.transitionIssue({
+      issueKey: "ABC-123",
+      transitionId: "11",
+    }),
+    (error) =>
+      error.name === "JiraBusinessError" &&
+      error.isBusinessFailure === true &&
+      error.message === "Jira integration is disabled"
+  );
+});
+
+test("transitionIssue maps 400, 401, 403, and 404 to business failures", async () => {
+  for (const status of [400, 401, 403, 404]) {
+    const { service } = loadService({
+      post: async () => {
+        const error = new Error(`jira status ${status}`);
+        error.response = {
+          status,
+        };
+        throw error;
+      },
+    });
+
+    await assert.rejects(
+      service.transitionIssue({
+        issueKey: "ABC-123",
+        transitionId: "11",
+      }),
+      (error) =>
+        error.name === "JiraBusinessError" &&
+        error.statusCode === status &&
+        error.isBusinessFailure === true &&
+        error.message === `Jira rejected transition request with status ${status}`
+    );
+  }
+});
+
+test("transitionIssue maps 429 and network failures to technical failures", async () => {
+  for (const jiraError of [
+    Object.assign(new Error("rate limited"), { response: { status: 429 } }),
+    Object.assign(new Error("timeout"), { code: "ECONNABORTED" }),
+  ]) {
+    const { service } = loadService({
+      post: async () => {
+        throw jiraError;
+      },
+    });
+
+    await assert.rejects(
+      service.transitionIssue({
+        issueKey: "ABC-123",
+        transitionId: "11",
       }),
       (error) =>
         error.name === "JiraTechnicalError" &&

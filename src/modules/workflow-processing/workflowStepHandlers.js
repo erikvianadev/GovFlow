@@ -3,6 +3,7 @@ const { JiraBusinessError } = require("../jira/jira.errors");
 const { safeRegisterAuditLog } = require("../../utils/safeAuditLog");
 const {
   validateJiraCommentConfiguration,
+  validateJiraTransitionConfiguration,
 } = require("../../validators/workflowSteps.validator");
 
 async function handleWorkflowStep(step) {
@@ -22,7 +23,7 @@ async function handleWorkflowStepWithContext({ step, execution = null }) {
       return handleNotificationStep(step);
 
     case "JIRA_TRANSITION":
-      return handleJiraTransitionStep(step);
+      return handleJiraTransitionStep({ step, execution });
 
     case "JIRA_COMMENT":
       return handleJiraCommentStep({ step, execution });
@@ -65,17 +66,6 @@ async function handleNotificationStep(step) {
   };
 }
 
-async function handleJiraTransitionStep(step) {
-  return {
-    status: "COMPLETED",
-    output: {
-      simulated: true,
-      actionType: step.action_type,
-      message: "Jira transition step completed by simulation",
-    },
-  };
-}
-
 function buildGovFlowJiraComment({ comment, executionId, executionStepId }) {
   return [
     comment.trim(),
@@ -83,6 +73,17 @@ function buildGovFlowJiraComment({ comment, executionId, executionStepId }) {
     "GovFlow executionStepId: " + executionStepId,
     "GovFlow executionId: " + executionId,
   ].join("\n");
+}
+
+function buildJiraTransitionAuditMetadata({ step, execution }) {
+  return {
+    executionId: execution?.id || step.execution_id || null,
+    executionStepId: step.id,
+    workflowStepId: step.step_id,
+    issueKey: step.configuration?.issueKey || null,
+    transitionId: step.configuration?.transitionId || null,
+    actionType: step.action_type,
+  };
 }
 
 function buildJiraCommentAuditMetadata({ step, execution }) {
@@ -93,6 +94,68 @@ function buildJiraCommentAuditMetadata({ step, execution }) {
     issueKey: step.configuration?.issueKey || null,
     actionType: step.action_type,
   };
+}
+
+async function handleJiraTransitionStep({ step, execution }) {
+  const auditMetadata = buildJiraTransitionAuditMetadata({ step, execution });
+
+  await safeRegisterAuditLog({
+    action: "JIRA_TRANSITION_ATTEMPTED",
+    entity: "workflow_execution_step",
+    entityId: step.id,
+    actorId: execution?.started_by || null,
+    metadata: auditMetadata,
+  });
+
+  try {
+    const validationErrors = validateJiraTransitionConfiguration(
+      step.configuration
+    );
+
+    if (validationErrors.length > 0) {
+      throw new JiraBusinessError("Invalid JIRA_TRANSITION configuration", 400);
+    }
+
+    const issueKey = step.configuration.issueKey.trim();
+    const transitionId = step.configuration.transitionId.trim();
+    const result = await jiraService.transitionIssue({
+      issueKey,
+      transitionId,
+    });
+
+    await safeRegisterAuditLog({
+      action: "JIRA_TRANSITION_COMPLETED",
+      entity: "workflow_execution_step",
+      entityId: step.id,
+      actorId: execution?.started_by || null,
+      metadata: {
+        ...auditMetadata,
+        issueKey,
+        transitionId,
+      },
+    });
+
+    return {
+      status: "COMPLETED",
+      output: {
+        provider: "jira",
+        operation: "transition",
+        issueKey,
+        transitionId,
+        status: result.status,
+      },
+    };
+  } catch (error) {
+    await safeRegisterAuditLog({
+      action: "JIRA_TRANSITION_FAILED",
+      entity: "workflow_execution_step",
+      entityId: step.id,
+      actorId: execution?.started_by || null,
+      metadata: auditMetadata,
+    });
+
+    throw error;
+  }
 }
 
 async function handleJiraCommentStep({ step, execution }) {
