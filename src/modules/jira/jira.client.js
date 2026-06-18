@@ -7,8 +7,12 @@ function createAuthHeader() {
   return `Basic ${token}`;
 }
 
+function getBaseUrl() {
+  return env.jira.baseUrl.replace(/\/+$/, "");
+}
+
 async function getMyself() {
-  const response = await axios.get(`${env.jira.baseUrl}/rest/api/3/myself`, {
+  const response = await axios.get(`${getBaseUrl()}/rest/api/3/myself`, {
     timeout: env.jira.timeoutMs,
     headers: {
       Authorization: createAuthHeader(),
@@ -19,6 +23,20 @@ async function getMyself() {
   return response.data;
 }
 
+async function post(path, payload) {
+  const response = await axios.post(`${getBaseUrl()}${path}`, payload, {
+    timeout: env.jira.timeoutMs,
+    headers: {
+      Authorization: createAuthHeader(),
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+  });
+
+  return response.data;
+}
+
 module.exports = {
   getMyself,
+  post,
 };

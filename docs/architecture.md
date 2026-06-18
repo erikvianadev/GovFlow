@@ -276,6 +276,10 @@ Technical failures are unexpected infrastructure or runtime errors. They are
 thrown as normal errors so BullMQ can retry the job according to the queue
 configuration.
 
+The public queueing endpoint still accepts only `PENDING` executions. The
+internal processor also accepts `RUNNING` executions so a retry of the same
+BullMQ job can re-enter after a retryable technical failure.
+
 Current retry strategy:
 
 - attempts: 3
@@ -303,7 +307,7 @@ Current processing flow:
 ```txt
 POST /workflow-executions/:id/process
   -> Validate execution
-  -> Ensure execution is PENDING
+  -> Ensure execution is PENDING for the first attempt or RUNNING for a retry
   -> Enqueue workflow-processing job
   -> Return 202 Accepted
   -> Worker receives job
@@ -358,7 +362,8 @@ for manual operational recovery.
 
 ## Workflow Step Handlers
 
-Workflow step processing is currently simulated through internal handlers.
+Workflow step processing is routed through internal handlers. Most handlers are
+still simulated; `JIRA_COMMENT` calls the real Jira Cloud API.
 
 Supported action types:
 
@@ -376,9 +381,35 @@ Current behavior:
 | MANUAL | Simulated completion |
 | NOTIFICATION | Simulated completion |
 | JIRA_TRANSITION | Simulated completion |
-| JIRA_COMMENT | Simulated completion |
+| JIRA_COMMENT | Creates a real Jira issue comment |
 
-No external systems are called yet.
+`JIRA_COMMENT` expects this step configuration:
+
+```json
+{
+  "issueKey": "ABC-123",
+  "comment": "Workflow processed by GovFlow"
+}
+```
+
+The handler validates `issueKey` and `comment`, appends GovFlow traceability
+lines with `executionStepId` and `executionId`, sends the comment as Jira ADF
+through `/rest/api/3/issue/{issueKey}/comment`, and stores this output in the
+execution result:
+
+```json
+{
+  "provider": "jira",
+  "operation": "comment",
+  "issueKey": "ABC-123",
+  "commentId": "10001",
+  "status": "completed"
+}
+```
+
+Jira 400, 403, 404, disabled integration, and invalid configuration are
+business failures. Timeouts, network errors, 429, and 5xx are retryable
+technical failures.
 
 ## Workflow Failure Handling
 
@@ -719,7 +750,11 @@ WORKFLOW_EXECUTION_PROCESS_STARTED
 WORKFLOW_EXECUTION_PROCESS_COMPLETED
 WORKFLOW_EXECUTION_PROCESS_FAILED
 WORKFLOW_EXECUTION_PROCESS_SKIPPED
+WORKFLOW_EXECUTION_PROCESS_TECHNICAL_FAILURE
 WORKFLOW_EXECUTION_RECOVERY_FAILED
+JIRA_COMMENT_ATTEMPTED
+JIRA_COMMENT_COMPLETED
+JIRA_COMMENT_FAILED
 ```
 
 `WORKFLOW_EXECUTION_PROCESS_SKIPPED` is recorded when the worker reaches

@@ -403,6 +403,22 @@ Validation rules:
 | actionType | yes | `MANUAL`, `JIRA_TRANSITION`, `JIRA_COMMENT`, or `NOTIFICATION` |
 | configuration | no | object, not array |
 
+For `JIRA_COMMENT`, `configuration` is required and must use:
+
+```json
+{
+  "issueKey": "ABC-123",
+  "comment": "Workflow processed by GovFlow"
+}
+```
+
+Validation rules:
+
+| Field | Required | Rule |
+| --- | ---: | --- |
+| configuration.issueKey | yes | string, not empty |
+| configuration.comment | yes | string, not empty, max 5000 characters |
+
 ## Workflow Executions
 
 ### POST /workflows/:workflowId/executions
@@ -571,7 +587,9 @@ Authorization: Bearer <accessToken>
 Behavior:
 
 - validates the execution ID
-- requires the execution to be `PENDING`
+- requires the execution to be `PENDING` for the first processing attempt, or
+  `RUNNING` when BullMQ retries the same job after a retryable technical
+  failure
 - creates a BullMQ job in the workflow processing queue
 - returns `202 Accepted` immediately with status `QUEUED`
 - worker consumes the job later
@@ -801,11 +819,13 @@ Completed execution shape:
           "executionStepId": "uuid",
           "stepId": "uuid",
           "stepOrder": 1,
-          "actionType": "MANUAL",
+          "actionType": "JIRA_COMMENT",
           "output": {
-            "simulated": true,
-            "actionType": "MANUAL",
-            "message": "Manual step completed by processor simulation"
+            "provider": "jira",
+            "operation": "comment",
+            "issueKey": "ABC-123",
+            "commentId": "10001",
+            "status": "completed"
           }
         }
       ]
@@ -868,12 +888,12 @@ Execution not found:
 }
 ```
 
-Execution not `PENDING`:
+Execution not processable:
 
 ```json
 {
   "success": false,
-  "message": "Only PENDING workflow executions can be processed"
+  "message": "Only PENDING or RUNNING workflow executions can be processed"
 }
 ```
 
@@ -882,7 +902,14 @@ Audit events:
 - `WORKFLOW_EXECUTION_PROCESS_STARTED`
 - `WORKFLOW_EXECUTION_PROCESS_COMPLETED`
 - `WORKFLOW_EXECUTION_PROCESS_FAILED`
+- `WORKFLOW_EXECUTION_PROCESS_TECHNICAL_FAILURE`
 - `WORKFLOW_EXECUTION_RECOVERY_FAILED`
+
+`JIRA_COMMENT` step processing also registers:
+
+- `JIRA_COMMENT_ATTEMPTED`
+- `JIRA_COMMENT_COMPLETED`
+- `JIRA_COMMENT_FAILED`
 
 ## RBAC Summary
 

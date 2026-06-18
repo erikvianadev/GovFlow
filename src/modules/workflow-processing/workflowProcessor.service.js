@@ -2,7 +2,7 @@ const AppError = require("../../errors/AppError");
 const workflowExecutionsRepository = require("../workflow-executions/workflowExecutions.repository");
 const workflowExecutionStepsRepository = require("../workflow-execution-steps/workflowExecutionSteps.repository");
 const { safeRegisterAuditLog } = require("../../utils/safeAuditLog");
-const { handleWorkflowStep } = require("./workflowStepHandlers");
+const workflowStepHandlers = require("./workflowStepHandlers");
 const {
   validateWorkflowExecutionId,
 } = require("../../validators/workflowExecutions.validator");
@@ -24,8 +24,11 @@ async function processWorkflowExecution({ executionId, processedBy }) {
     throw new AppError("Workflow execution not found", 404);
   }
 
-  if (execution.status !== "PENDING") {
-    throw new AppError("Only PENDING workflow executions can be processed", 409);
+  if (!["PENDING", "RUNNING"].includes(execution.status)) {
+    throw new AppError(
+      "Only PENDING or RUNNING workflow executions can be processed",
+      409
+    );
   }
 
   const steps = await workflowExecutionStepsRepository.findByExecutionId(
@@ -36,14 +39,15 @@ async function processWorkflowExecution({ executionId, processedBy }) {
     throw new AppError("Workflow execution has no steps to process", 409);
   }
 
-  // Atomically transition PENDING -> RUNNING. Only one caller can win this
-  // claim, so concurrent worker and API processing requests cannot process the
-  // same execution twice.
-  const claimedExecution = await workflowExecutionsRepository.claimPendingExecution(
-    {
-      id: executionId,
-    }
-  );
+  // Atomically transition PENDING -> RUNNING. Retries from the same BullMQ job
+  // can re-enter while the execution is already RUNNING after a retryable
+  // technical failure.
+  const claimedExecution =
+    execution.status === "PENDING"
+      ? await workflowExecutionsRepository.claimPendingExecution({
+          id: executionId,
+        })
+      : execution;
 
   if (!claimedExecution) {
     throw new AppError(
@@ -74,7 +78,10 @@ async function processWorkflowExecution({ executionId, processedBy }) {
     });
 
     try {
-      const handlerResult = await handleWorkflowStep(step);
+      const handlerResult = await workflowStepHandlers.handleWorkflowStepWithContext({
+        step,
+        execution,
+      });
 
       await workflowExecutionStepsRepository.updateStatus(
         {
@@ -99,6 +106,23 @@ async function processWorkflowExecution({ executionId, processedBy }) {
         completedAt: new Date(),
         errorMessage: error.message,
       });
+
+      if (error.isRetryable === true) {
+        await safeRegisterAuditLog({
+          action: "WORKFLOW_EXECUTION_PROCESS_TECHNICAL_FAILURE",
+          entity: "workflow_execution",
+          entityId: executionId,
+          actorId: processedBy,
+          metadata: {
+            workflowId: execution.workflow_id,
+            failedStepId: step.step_id,
+            failedStepOrder: step.step_order,
+            error: error.message,
+          },
+        });
+
+        throw error;
+      }
 
       // Finalize only while still RUNNING. If the execution was already
       // finalized concurrently (e.g. recovered as FAILED while this worker was

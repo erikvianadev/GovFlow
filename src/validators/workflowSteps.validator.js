@@ -4,6 +4,7 @@ const VALID_ACTION_TYPES = [
   "JIRA_COMMENT",
   "NOTIFICATION",
 ];
+const JIRA_COMMENT_MAX_LENGTH = 5000;
 
 function validateCreateWorkflowStep(payload) {
   const errors = [];
@@ -13,6 +14,15 @@ function validateCreateWorkflowStep(payload) {
   validateStepOrder(payload.stepOrder, errors);
   validateActionType(payload.actionType, errors);
   validateConfiguration(payload.configuration, errors);
+  validateActionConfiguration(payload.actionType, payload.configuration, errors);
+
+  return errors;
+}
+
+function validateJiraCommentConfiguration(configuration) {
+  const errors = [];
+
+  validateJiraCommentFields(configuration, errors);
 
   return errors;
 }
@@ -143,6 +153,77 @@ function validateConfiguration(configuration, errors) {
   }
 }
 
+function validateActionConfiguration(actionType, configuration, errors) {
+  if (actionType !== "JIRA_COMMENT") {
+    return;
+  }
+
+  validateJiraCommentFields(configuration, errors);
+}
+
+function validateJiraCommentFields(configuration, errors) {
+  if (configuration === undefined || configuration === null) {
+    errors.push({
+      field: "configuration",
+      message: "JIRA_COMMENT configuration is required",
+    });
+    return;
+  }
+
+  if (typeof configuration !== "object" || Array.isArray(configuration)) {
+    return;
+  }
+
+  validateRequiredNonEmptyString(
+    configuration.issueKey,
+    "configuration.issueKey",
+    "Jira issue key",
+    errors
+  );
+
+  validateRequiredNonEmptyString(
+    configuration.comment,
+    "configuration.comment",
+    "Jira comment",
+    errors
+  );
+
+  if (
+    typeof configuration.comment === "string" &&
+    configuration.comment.length > JIRA_COMMENT_MAX_LENGTH
+  ) {
+    errors.push({
+      field: "configuration.comment",
+      message: `Jira comment must be at most ${JIRA_COMMENT_MAX_LENGTH} characters`,
+    });
+  }
+}
+
+function validateRequiredNonEmptyString(value, field, label, errors) {
+  if (value === undefined || value === null) {
+    errors.push({
+      field,
+      message: `${label} is required`,
+    });
+    return;
+  }
+
+  if (typeof value !== "string") {
+    errors.push({
+      field,
+      message: `${label} must be a string`,
+    });
+    return;
+  }
+
+  if (value.trim().length === 0) {
+    errors.push({
+      field,
+      message: `${label} cannot be empty`,
+    });
+  }
+}
+
 function validateRequiredUuid(value, field, label, errors) {
   if (value === undefined || value === null) {
     errors.push({
@@ -177,6 +258,8 @@ function isValidUuid(value) {
 
 module.exports = {
   validateCreateWorkflowStep,
+  validateJiraCommentConfiguration,
   validateWorkflowId,
+  JIRA_COMMENT_MAX_LENGTH,
   VALID_ACTION_TYPES,
 };

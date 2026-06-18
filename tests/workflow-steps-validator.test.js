@@ -2,7 +2,9 @@ const assert = require("node:assert");
 const test = require("node:test");
 
 const {
+  JIRA_COMMENT_MAX_LENGTH,
   validateCreateWorkflowStep,
+  validateJiraCommentConfiguration,
   validateWorkflowId,
   VALID_ACTION_TYPES,
 } = require("../src/validators/workflowSteps.validator");
@@ -29,10 +31,80 @@ test("validateCreateWorkflowStep accepts every supported action type", () => {
       name: "Step",
       stepOrder: 1,
       actionType,
+      configuration:
+        actionType === "JIRA_COMMENT"
+          ? {
+              issueKey: "ABC-123",
+              comment: "GovFlow async workflow test",
+            }
+          : undefined,
     });
 
     assert.deepStrictEqual(errors, []);
   }
+});
+
+test("validateCreateWorkflowStep validates JIRA_COMMENT configuration", () => {
+  assert.deepStrictEqual(
+    validateCreateWorkflowStep({
+      name: "Add Jira comment",
+      stepOrder: 1,
+      actionType: "JIRA_COMMENT",
+      configuration: {
+        issueKey: "ABC-123",
+        comment: "GovFlow async workflow test",
+      },
+    }),
+    []
+  );
+
+  assert.deepStrictEqual(
+    validateCreateWorkflowStep({
+      name: "Add Jira comment",
+      stepOrder: 1,
+      actionType: "JIRA_COMMENT",
+      configuration: {
+        issueKey: "",
+        comment: "",
+      },
+    }),
+    [
+      {
+        field: "configuration.issueKey",
+        message: "Jira issue key cannot be empty",
+      },
+      {
+        field: "configuration.comment",
+        message: "Jira comment cannot be empty",
+      },
+    ]
+  );
+});
+
+test("validateJiraCommentConfiguration rejects missing and oversized fields", () => {
+  assert.deepStrictEqual(validateJiraCommentConfiguration(null), [
+    {
+      field: "configuration",
+      message: "JIRA_COMMENT configuration is required",
+    },
+  ]);
+
+  assert.deepStrictEqual(
+    validateJiraCommentConfiguration({
+      issueKey: 123,
+      comment: "x".repeat(JIRA_COMMENT_MAX_LENGTH + 1),
+    }),
+    [
+      {
+        field: "configuration.issueKey",
+        message: "Jira issue key must be a string",
+      },
+      {
+        field: "configuration.comment",
+        message: `Jira comment must be at most ${JIRA_COMMENT_MAX_LENGTH} characters`,
+      },
+    ]
+  );
 });
 
 test("validateCreateWorkflowStep rejects invalid required fields", () => {
