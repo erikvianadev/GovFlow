@@ -16,6 +16,26 @@ function requireEnv(name) {
   return value;
 }
 
+// Minimum length (in characters) accepted for a cryptographic secret.
+// 32 chars is the floor; a 256-bit key encoded as base64 yields ~44+ chars,
+// which is the recommended way to provision JWT_SECRET (openssl rand -base64 48).
+const MIN_SECRET_LENGTH = 32;
+
+// Return a required secret, failing fast when it is missing or too weak.
+// This blocks deploys with placeholder/short secrets (e.g. "your_jwt_secret").
+function requireStrongSecret(name) {
+  const value = requireEnv(name);
+
+  if (value.trim().length < MIN_SECRET_LENGTH) {
+    throw new Error(
+      `Environment variable ${name} is too weak: it must be at least ${MIN_SECRET_LENGTH} characters. ` +
+        `Generate a strong value with: openssl rand -base64 48`
+    );
+  }
+
+  return value;
+}
+
 // Parse a comma-separated environment variable into a trimmed, non-empty list.
 function parseList(value, fallback = []) {
   if (value === undefined || value === null || value.trim() === "") {
@@ -75,8 +95,8 @@ const env = {
     name: requireEnv("DB_NAME"),
   },
 
-  jwt: { // JWT configuration, the secret is required and has no fallback
-    secret: requireEnv("JWT_SECRET"),
+  jwt: { // JWT configuration, the secret is required, has no fallback, and must be strong
+    secret: requireStrongSecret("JWT_SECRET"),
     expiresIn: process.env.JWT_EXPIRES_IN || "1h",
   },
 
