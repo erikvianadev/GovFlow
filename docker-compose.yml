@@ -1,3 +1,13 @@
+# Development-only Docker Compose.
+#
+# This file optimizes for local DX: source is bind-mounted with hot reload, and
+# Postgres (5432) / Redis (6379) publish host ports for easy inspection with
+# local tools. Redis runs without a password here for convenience.
+#
+# Do NOT use this configuration as a deployment target. For a hardened,
+# production-like stack (NODE_ENV=production, Redis auth, no published backing
+# service ports, no bind-mount) use docker-compose.prod.yml. See docs/docker-prod.md.
+
 services:
   api:
     build: .

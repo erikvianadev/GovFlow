@@ -72,11 +72,34 @@ function resolveNodeEnv() {
   return nodeEnv;
 }
 
+// Resolve the Redis password. In production a non-empty REDIS_PASSWORD is
+// mandatory (backing services must never run unauthenticated in a deployed
+// environment); the boot fails fast otherwise. In development/test it is
+// optional, so a local Redis without auth keeps working.
+function resolveRedisPassword(nodeEnv) {
+  const password = process.env.REDIS_PASSWORD;
+  const hasPassword = !(
+    password === undefined ||
+    password === null ||
+    password.trim() === ""
+  );
+
+  if (nodeEnv === "production" && !hasPassword) {
+    throw new Error(
+      "Missing required environment variable in production: REDIS_PASSWORD"
+    );
+  }
+
+  return hasPassword ? password : undefined;
+}
+
+const nodeEnv = resolveNodeEnv(); // Validated NODE_ENV with a safe default
+
 // Export the environment configuration as an object
 const env = {
   app: {
     port: Number(process.env.PORT) || 3000, // Use PORT from environment variables or default to 3000
-    nodeEnv: resolveNodeEnv(), // Validated NODE_ENV with a safe default
+    nodeEnv, // Validated NODE_ENV with a safe default
     corsOrigins: parseList(process.env.CORS_ORIGINS, ["http://localhost:3000"]), // Allowlisted CORS origins
   },
 
@@ -100,10 +123,10 @@ const env = {
     expiresIn: process.env.JWT_EXPIRES_IN || "1h",
   },
 
-  redis: { // Redis configuration using environment variables with defaults
+  redis: { // Redis configuration; password required in production, optional in dev/test
     host: process.env.REDIS_HOST || "localhost",
     port: Number(process.env.REDIS_PORT) || 6379,
-    password: process.env.REDIS_PASSWORD || undefined,
+    password: resolveRedisPassword(nodeEnv),
   },
 
   workflowExecution: {

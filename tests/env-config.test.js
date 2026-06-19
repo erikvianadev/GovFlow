@@ -17,6 +17,8 @@ const VALID_ENV = {
   // Must satisfy the minimum-strength check (>= 32 chars) enforced in env.js.
   JWT_SECRET: "test_secret_value_padded_to_min_length_0123456789",
   JWT_EXPIRES_IN: "1h",
+  // Required only when NODE_ENV=production; included so production load cases pass.
+  REDIS_PASSWORD: "test_redis_password",
   NODE_ENV: "test",
 };
 
@@ -71,6 +73,40 @@ test("env fails fast when JWT_SECRET is too weak", () => {
 
   assert.notStrictEqual(result.status, 0);
   assert.match(result.stderr, /JWT_SECRET is too weak/);
+});
+
+test("env fails fast when REDIS_PASSWORD is missing in production", () => {
+  const result = loadEnv({
+    remove: ["REDIS_PASSWORD"],
+    override: { NODE_ENV: "production" },
+  });
+
+  assert.notStrictEqual(result.status, 0);
+  assert.match(
+    result.stderr,
+    /Missing required environment variable in production: REDIS_PASSWORD/
+  );
+});
+
+test("env fails fast when REDIS_PASSWORD is empty in production", () => {
+  const result = loadEnv({
+    override: { NODE_ENV: "production", REDIS_PASSWORD: "   " },
+  });
+
+  assert.notStrictEqual(result.status, 0);
+  assert.match(
+    result.stderr,
+    /Missing required environment variable in production: REDIS_PASSWORD/
+  );
+});
+
+test("env does not require REDIS_PASSWORD in development", () => {
+  const result = loadEnv({
+    remove: ["REDIS_PASSWORD"],
+    override: { NODE_ENV: "development" },
+  });
+
+  assert.strictEqual(result.status, 0, result.stderr);
 });
 
 test("env fails fast when a required database variable is missing", () => {
