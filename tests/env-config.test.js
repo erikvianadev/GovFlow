@@ -14,7 +14,8 @@ const VALID_ENV = {
   DB_USER: "govflow_user",
   DB_PASSWORD: "govflow_password",
   DB_NAME: "govflow_db",
-  JWT_SECRET: "test_secret_value",
+  // Must satisfy the minimum-strength check (>= 32 chars) enforced in env.js.
+  JWT_SECRET: "test_secret_value_padded_to_min_length_0123456789",
   JWT_EXPIRES_IN: "1h",
   NODE_ENV: "test",
 };
@@ -63,6 +64,13 @@ test("env fails fast when JWT_SECRET is empty", () => {
 
   assert.notStrictEqual(result.status, 0);
   assert.match(result.stderr, /Missing required environment variable: JWT_SECRET/);
+});
+
+test("env fails fast when JWT_SECRET is too weak", () => {
+  const result = loadEnv({ override: { JWT_SECRET: "short" } });
+
+  assert.notStrictEqual(result.status, 0);
+  assert.match(result.stderr, /JWT_SECRET is too weak/);
 });
 
 test("env fails fast when a required database variable is missing", () => {
