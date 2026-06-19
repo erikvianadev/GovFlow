@@ -16,6 +16,9 @@ const workflowProcessingQueuePath = path.join(
 );
 
 const validExecutionId = "11111111-1111-4111-8111-111111111111";
+const adminRequester = { role: "ADMIN" };
+const departmentA = "33333333-3333-4333-8333-333333333333";
+const departmentB = "44444444-4444-4444-8444-444444444444";
 
 function mockModule(modulePath, exports) {
   delete require.cache[modulePath];
@@ -88,11 +91,35 @@ test("getWorkflowExecutionProcessingJobStatus returns 404 for missing executions
   );
 });
 
+test("getWorkflowExecutionProcessingJobStatus returns 404 for a manager from another department", async () => {
+  const { service, calls } = loadService({
+    execution: {
+      id: validExecutionId,
+      department_id: departmentA,
+      status: "PENDING",
+    },
+  });
+
+  await assert.rejects(
+    service.getWorkflowExecutionProcessingJobStatus(validExecutionId, {
+      role: "MANAGER",
+      department_id: departmentB,
+    }),
+    (error) =>
+      error.statusCode === 404 &&
+      error.message === "Workflow execution not found"
+  );
+
+  // The queue must not be probed once access is denied.
+  assert.deepStrictEqual(calls.getJobs, []);
+});
+
 test("getWorkflowExecutionProcessingJobStatus returns not_found when no queue job exists", async () => {
   const { service, calls } = loadService();
 
   const result = await service.getWorkflowExecutionProcessingJobStatus(
-    validExecutionId
+    validExecutionId,
+    adminRequester
   );
 
   assert.deepStrictEqual(calls.getJobs, [
@@ -130,7 +157,8 @@ test("getWorkflowExecutionProcessingJobStatus returns BullMQ job details", async
   });
 
   const result = await service.getWorkflowExecutionProcessingJobStatus(
-    validExecutionId
+    validExecutionId,
+    adminRequester
   );
 
   assert.deepStrictEqual(result, {
@@ -164,7 +192,8 @@ test("getWorkflowExecutionProcessingJobStatus returns failed job details", async
   });
 
   const result = await service.getWorkflowExecutionProcessingJobStatus(
-    validExecutionId
+    validExecutionId,
+    adminRequester
   );
 
   assert.strictEqual(result.state, "failed");

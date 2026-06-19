@@ -1,6 +1,9 @@
 const AppError = require("../../errors/AppError");
 const workflowExecutionsRepository = require("../workflow-executions/workflowExecutions.repository");
 const {
+  assertCanAccessExecution,
+} = require("../workflow-executions/workflowExecutionAccess");
+const {
   buildWorkflowProcessingJobId,
   WORKFLOW_PROCESSING_QUEUE_NAME,
   workflowProcessingQueue,
@@ -17,7 +20,7 @@ function formatTimestamp(timestamp) {
   return new Date(timestamp).toISOString();
 }
 
-async function getWorkflowExecutionProcessingJobStatus(executionId) {
+async function getWorkflowExecutionProcessingJobStatus(executionId, requester) {
   const validationErrors = validateWorkflowExecutionId(executionId);
 
   if (validationErrors.length > 0) {
@@ -29,6 +32,9 @@ async function getWorkflowExecutionProcessingJobStatus(executionId) {
   if (!execution) {
     throw new AppError("Workflow execution not found", 404);
   }
+
+  // Enforce department scope (throws 404 on cross-department access).
+  assertCanAccessExecution(execution, requester);
 
   const jobId = buildWorkflowProcessingJobId(executionId);
   const job = await workflowProcessingQueue.getJob(jobId);

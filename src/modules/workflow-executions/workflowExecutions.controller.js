@@ -13,6 +13,7 @@ const list = asyncHandler(async (req, res) => {
     workflowId: req.query.workflowId,
     startedBy: req.query.startedBy,
     status: req.query.status,
+    requester: req.user,
   });
 
   return paginatedResponse(res, {
@@ -24,7 +25,8 @@ const list = asyncHandler(async (req, res) => {
 
 const getById = asyncHandler(async (req, res) => {
   const execution = await workflowExecutionsService.getWorkflowExecutionById(
-    req.params.id
+    req.params.id,
+    req.user
   );
 
   return successResponse(res, {

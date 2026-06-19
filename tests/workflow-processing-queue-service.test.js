@@ -17,6 +17,9 @@ const workflowProcessingQueuePath = path.join(
 
 const validExecutionId = "11111111-1111-4111-8111-111111111111";
 const validUserId = "22222222-2222-4222-8222-222222222222";
+const adminRequester = { role: "ADMIN" };
+const departmentA = "33333333-3333-4333-8333-333333333333";
+const departmentB = "44444444-4444-4444-8444-444444444444";
 
 function mockModule(modulePath, exports) {
   delete require.cache[modulePath];
@@ -104,11 +107,37 @@ test("enqueueWorkflowExecutionProcessing returns 404 for missing executions", as
     service.enqueueWorkflowExecutionProcessing({
       executionId: validExecutionId,
       processedBy: validUserId,
+      requester: adminRequester,
     }),
     (error) =>
       error.statusCode === 404 &&
       error.message === "Workflow execution not found"
   );
+});
+
+test("enqueueWorkflowExecutionProcessing returns 404 for a manager from another department", async () => {
+  const { service, calls } = loadService({
+    execution: {
+      id: validExecutionId,
+      workflow_id: "workflow-1",
+      department_id: departmentA,
+      status: "PENDING",
+    },
+  });
+
+  await assert.rejects(
+    service.enqueueWorkflowExecutionProcessing({
+      executionId: validExecutionId,
+      processedBy: validUserId,
+      requester: { role: "MANAGER", department_id: departmentB },
+    }),
+    (error) =>
+      error.statusCode === 404 &&
+      error.message === "Workflow execution not found"
+  );
+
+  // No external side effect (queue add) once access is denied.
+  assert.deepStrictEqual(calls.queueAdds, []);
 });
 
 test("enqueueWorkflowExecutionProcessing blocks non-pending executions", async () => {
@@ -124,6 +153,7 @@ test("enqueueWorkflowExecutionProcessing blocks non-pending executions", async (
     service.enqueueWorkflowExecutionProcessing({
       executionId: validExecutionId,
       processedBy: validUserId,
+      requester: adminRequester,
     }),
     (error) =>
       error.statusCode === 409 &&
@@ -137,6 +167,7 @@ test("enqueueWorkflowExecutionProcessing adds a workflow processing job", async 
   const result = await service.enqueueWorkflowExecutionProcessing({
     executionId: validExecutionId,
     processedBy: validUserId,
+    requester: adminRequester,
   });
 
   assert.deepStrictEqual(calls.queueAdds, [
