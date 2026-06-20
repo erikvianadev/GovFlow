@@ -139,15 +139,20 @@ function loadService({
     },
   });
   mockModule(workflowStepHandlersPath, {
-    handleWorkflowStep:
-      handlerImpl ||
-      (async (step) => ({
-        status: "COMPLETED",
-        output: {
-          simulated: true,
-          actionType: step.action_type,
-        },
-      })),
+    handleWorkflowStepWithContext:
+      async (context) => {
+        if (handlerImpl) {
+          return handlerImpl(context.step, context);
+        }
+
+        return {
+          status: "COMPLETED",
+          output: {
+            simulated: true,
+            actionType: context.step.action_type,
+          },
+        };
+      },
   });
 
   return {
@@ -202,7 +207,8 @@ test("processWorkflowExecution blocks non-pending executions", async () => {
     }),
     (error) =>
       error.statusCode === 409 &&
-      error.message === "Only PENDING workflow executions can be processed"
+      error.message ===
+        "Only PENDING or RUNNING workflow executions can be processed"
   );
 });
 
@@ -272,6 +278,28 @@ test("processWorkflowExecution processes steps in order and completes the execut
       "WORKFLOW_EXECUTION_PROCESS_STARTED",
       "WORKFLOW_EXECUTION_PROCESS_COMPLETED",
     ]
+  );
+  assert.strictEqual(result.status, "COMPLETED");
+});
+
+test("processWorkflowExecution can resume a RUNNING execution for retry", async () => {
+  const { service, calls } = loadService({
+    execution: {
+      id: validExecutionId,
+      workflow_id: "workflow-1",
+      status: "RUNNING",
+    },
+  });
+
+  const result = await service.processWorkflowExecution({
+    executionId: validExecutionId,
+    processedBy: validUserId,
+  });
+
+  assert.strictEqual(calls.claims.length, 0);
+  assert.deepStrictEqual(
+    calls.stepUpdates.map((update) => update.status),
+    ["RUNNING", "COMPLETED", "RUNNING", "COMPLETED"]
   );
   assert.strictEqual(result.status, "COMPLETED");
 });
@@ -395,4 +423,35 @@ test("processWorkflowExecution stops processing steps after the first failure", 
   );
   assert.strictEqual(result.status, "FAILED");
   assert.strictEqual(calls.executionUpdates.at(-1).result.failedStep.stepOrder, 2);
+});
+
+test("processWorkflowExecution propagates retryable technical step failures", async () => {
+  const technicalError = new Error("Temporary Jira comment request failure");
+  technicalError.isRetryable = true;
+  const { service, calls } = loadService({
+    handlerImpl: async () => {
+      throw technicalError;
+    },
+  });
+
+  await assert.rejects(
+    service.processWorkflowExecution({
+      executionId: validExecutionId,
+      processedBy: validUserId,
+    }),
+    (error) => error === technicalError
+  );
+
+  assert.deepStrictEqual(
+    calls.stepUpdates.map((update) => update.status),
+    ["RUNNING", "FAILED"]
+  );
+  assert.strictEqual(calls.executionUpdates.length, 0);
+  assert.deepStrictEqual(
+    calls.audit.map((entry) => entry.action),
+    [
+      "WORKFLOW_EXECUTION_PROCESS_STARTED",
+      "WORKFLOW_EXECUTION_PROCESS_TECHNICAL_FAILURE",
+    ]
+  );
 });

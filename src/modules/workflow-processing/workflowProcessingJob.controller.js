@@ -5,7 +5,8 @@ const { successResponse } = require("../../utils/apiResponse");
 const getByExecutionId = asyncHandler(async (req, res) => {
   const result =
     await workflowProcessingJobService.getWorkflowExecutionProcessingJobStatus(
-      req.params.id
+      req.params.id,
+      req.user
     );
 
   return successResponse(res, {

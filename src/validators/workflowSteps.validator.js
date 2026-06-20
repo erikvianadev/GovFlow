@@ -4,6 +4,13 @@ const VALID_ACTION_TYPES = [
   "JIRA_COMMENT",
   "NOTIFICATION",
 ];
+const JIRA_COMMENT_MAX_LENGTH = 5000;
+const JIRA_ISSUE_KEY_MAX_LENGTH = 100;
+const JIRA_TRANSITION_ID_MAX_LENGTH = 50;
+
+// Standard Jira issue key format: an uppercase project key starting with a
+// letter, followed by a hyphen and the issue number (e.g. ABC-123, DO-32).
+const JIRA_ISSUE_KEY_REGEX = /^[A-Z][A-Z0-9]+-\d+$/;
 
 function validateCreateWorkflowStep(payload) {
   const errors = [];
@@ -13,6 +20,23 @@ function validateCreateWorkflowStep(payload) {
   validateStepOrder(payload.stepOrder, errors);
   validateActionType(payload.actionType, errors);
   validateConfiguration(payload.configuration, errors);
+  validateActionConfiguration(payload.actionType, payload.configuration, errors);
+
+  return errors;
+}
+
+function validateJiraCommentConfiguration(configuration) {
+  const errors = [];
+
+  validateJiraCommentFields(configuration, errors);
+
+  return errors;
+}
+
+function validateJiraTransitionConfiguration(configuration) {
+  const errors = [];
+
+  validateJiraTransitionFields(configuration, errors);
 
   return errors;
 }
@@ -143,6 +167,163 @@ function validateConfiguration(configuration, errors) {
   }
 }
 
+function validateActionConfiguration(actionType, configuration, errors) {
+  if (actionType === "JIRA_COMMENT") {
+    validateJiraCommentFields(configuration, errors);
+  }
+
+  if (actionType === "JIRA_TRANSITION") {
+    validateJiraTransitionFields(configuration, errors);
+  }
+}
+
+function validateJiraCommentFields(configuration, errors) {
+  if (configuration === undefined || configuration === null) {
+    errors.push({
+      field: "configuration",
+      message: "JIRA_COMMENT configuration is required",
+    });
+    return;
+  }
+
+  if (typeof configuration !== "object" || Array.isArray(configuration)) {
+    return;
+  }
+
+  validateJiraIssueKey(configuration.issueKey, errors);
+
+  validateRequiredNonEmptyString(
+    configuration.comment,
+    "configuration.comment",
+    "Jira comment",
+    errors
+  );
+
+  if (
+    typeof configuration.comment === "string" &&
+    configuration.comment.length > JIRA_COMMENT_MAX_LENGTH
+  ) {
+    errors.push({
+      field: "configuration.comment",
+      message: `Jira comment must be at most ${JIRA_COMMENT_MAX_LENGTH} characters`,
+    });
+  }
+}
+
+function validateJiraTransitionFields(configuration, errors) {
+  if (configuration === undefined || configuration === null) {
+    errors.push({
+      field: "configuration",
+      message: "JIRA_TRANSITION configuration is required",
+    });
+    return;
+  }
+
+  if (typeof configuration !== "object" || Array.isArray(configuration)) {
+    return;
+  }
+
+  validateJiraIssueKey(configuration.issueKey, errors);
+
+  validateRequiredNonEmptyString(
+    configuration.transitionId,
+    "configuration.transitionId",
+    "Jira transition ID",
+    errors
+  );
+
+  if (
+    typeof configuration.transitionId === "string" &&
+    configuration.transitionId.length > JIRA_TRANSITION_ID_MAX_LENGTH
+  ) {
+    errors.push({
+      field: "configuration.transitionId",
+      message: `Jira transition ID must be at most ${JIRA_TRANSITION_ID_MAX_LENGTH} characters`,
+    });
+  }
+
+  if (
+    typeof configuration.transitionId === "string" &&
+    configuration.transitionId.trim().length > 0 &&
+    !/^\d+$/.test(configuration.transitionId.trim())
+  ) {
+    errors.push({
+      field: "configuration.transitionId",
+      message: "Jira transition ID must be numeric",
+    });
+  }
+}
+
+function validateJiraIssueKey(value, errors) {
+  const field = "configuration.issueKey";
+
+  if (value === undefined || value === null) {
+    errors.push({
+      field,
+      message: "Jira issue key is required",
+    });
+    return;
+  }
+
+  if (typeof value !== "string") {
+    errors.push({
+      field,
+      message: "Jira issue key must be a string",
+    });
+    return;
+  }
+
+  const trimmedValue = value.trim();
+
+  if (trimmedValue.length === 0) {
+    errors.push({
+      field,
+      message: "Jira issue key cannot be empty",
+    });
+    return;
+  }
+
+  if (trimmedValue.length > JIRA_ISSUE_KEY_MAX_LENGTH) {
+    errors.push({
+      field,
+      message: `Jira issue key must be at most ${JIRA_ISSUE_KEY_MAX_LENGTH} characters`,
+    });
+    return;
+  }
+
+  if (!JIRA_ISSUE_KEY_REGEX.test(trimmedValue)) {
+    errors.push({
+      field,
+      message: "Jira issue key must be a valid Jira issue key (e.g. ABC-123)",
+    });
+  }
+}
+
+function validateRequiredNonEmptyString(value, field, label, errors) {
+  if (value === undefined || value === null) {
+    errors.push({
+      field,
+      message: `${label} is required`,
+    });
+    return;
+  }
+
+  if (typeof value !== "string") {
+    errors.push({
+      field,
+      message: `${label} must be a string`,
+    });
+    return;
+  }
+
+  if (value.trim().length === 0) {
+    errors.push({
+      field,
+      message: `${label} cannot be empty`,
+    });
+  }
+}
+
 function validateRequiredUuid(value, field, label, errors) {
   if (value === undefined || value === null) {
     errors.push({
@@ -177,6 +358,11 @@ function isValidUuid(value) {
 
 module.exports = {
   validateCreateWorkflowStep,
+  validateJiraCommentConfiguration,
+  validateJiraTransitionConfiguration,
   validateWorkflowId,
+  JIRA_COMMENT_MAX_LENGTH,
+  JIRA_TRANSITION_ID_MAX_LENGTH,
+  JIRA_ISSUE_KEY_MAX_LENGTH,
   VALID_ACTION_TYPES,
 };

@@ -1,0 +1,88 @@
+# Production-like Docker Compose.
+#
+# This file is NOT for local development (use docker-compose.yml for that).
+# Bring it up explicitly:
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Hardening vs. the dev compose:
+#   - NODE_ENV=production (generic error responses, REDIS_PASSWORD enforced).
+#   - Redis requires a password; Postgres credentials come from the environment.
+#   - Postgres and Redis publish NO host ports: they are reachable only on the
+#     internal compose network via service DNS (postgres / redis).
+#   - The application runs from the built image (no source bind-mount, no
+#     nodemon): api runs `npm start`, worker runs the worker entrypoint.
+#
+# All sensitive values are provided via environment variables / an env file
+# (see docs/docker-prod.md). There are NO real values or insecure defaults here.
+
+services:
+  api:
+    build: .
+    container_name: govflow_api
+    restart: unless-stopped
+    command: npm start
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:?DB_USER is required}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      DB_NAME: ${DB_NAME:?DB_NAME is required}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    depends_on:
+      - postgres
+      - redis
+
+  worker:
+    build: .
+    container_name: govflow_worker
+    restart: unless-stopped
+    command: npm run worker:workflow-processing
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:?DB_USER is required}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      DB_NAME: ${DB_NAME:?DB_NAME is required}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: postgres:16
+    container_name: govflow_postgres
+    restart: unless-stopped
+    # No `ports:` block: Postgres is only reachable on the internal network.
+    environment:
+      POSTGRES_USER: ${DB_USER:?DB_USER is required}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      POSTGRES_DB: ${DB_NAME:?DB_NAME is required}
+    volumes:
+      - govflow_postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: govflow_redis
+    restart: unless-stopped
+    # No `ports:` block: Redis is only reachable on the internal network.
+    # `--requirepass` enforces authentication for every connection.
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    volumes:
+      - redis_data:/data
+
+volumes:
+  govflow_postgres_data:
+  redis_data:

@@ -5,10 +5,6 @@ const test = require("node:test");
 const servicePath = path.join(__dirname, "../src/modules/health/health.service.js");
 const databasePath = path.join(__dirname, "../src/config/database.js");
 const redisPath = path.join(__dirname, "../src/config/redis.js");
-const auditLogsServicePath = path.join(
-  __dirname,
-  "../src/modules/audit-logs/auditLogs.service.js"
-);
 
 function mockModule(modulePath, exports) {
   delete require.cache[modulePath];
@@ -21,9 +17,7 @@ function mockModule(modulePath, exports) {
 }
 
 function loadHealthService({ databaseError, redisError, redisConnected = true } = {}) {
-  const auditCalls = [];
-
-  [servicePath, databasePath, redisPath, auditLogsServicePath].forEach(
+  [servicePath, databasePath, redisPath].forEach(
     (modulePath) => delete require.cache[modulePath]
   );
 
@@ -43,59 +37,84 @@ function loadHealthService({ databaseError, redisError, redisConnected = true } 
       return redisConnected;
     },
   });
-  mockModule(auditLogsServicePath, {
-    register: async (payload) => {
-      auditCalls.push(payload);
-    },
-  });
 
   return {
     healthService: require(servicePath),
-    auditCalls,
   };
 }
 
-test("health status includes Redis when all dependencies are available", async () => {
-  const { healthService, auditCalls } = loadHealthService();
+test("getStatus exposes only the aggregated status when everything is ok", async () => {
+  const { healthService } = loadHealthService();
 
   const result = await healthService.getStatus();
 
-  assert.strictEqual(result.status, "ok");
-  assert.deepStrictEqual(result.services.database, { status: "ok" });
-  assert.deepStrictEqual(result.services.redis, { status: "ok" });
-  assert.strictEqual(auditCalls.length, 1);
-  assert.deepStrictEqual(auditCalls[0].metadata, {
-    databaseStatus: "ok",
-    redisStatus: "ok",
-  });
+  assert.deepStrictEqual(result, { status: "ok" });
 });
 
-test("health status degrades when Redis is unavailable", async () => {
-  const { healthService, auditCalls } = loadHealthService({
-    redisError: new Error("connect ECONNREFUSED"),
+test("getStatus does not leak services, timestamp, service or error fields", async () => {
+  const { healthService } = loadHealthService();
+
+  const result = await healthService.getStatus();
+
+  assert.deepStrictEqual(Object.keys(result), ["status"]);
+  assert.strictEqual(result.services, undefined);
+  assert.strictEqual(result.timestamp, undefined);
+  assert.strictEqual(result.service, undefined);
+  assert.strictEqual(result.error, undefined);
+});
+
+test("getStatus reports degraded without leaking the database error message", async () => {
+  const { healthService } = loadHealthService({
+    databaseError: new Error("connect ECONNREFUSED 127.0.0.1:5432"),
   });
 
   const result = await healthService.getStatus();
+
+  assert.deepStrictEqual(result, { status: "degraded" });
+});
+
+test("getStatus reports degraded without leaking the redis error message", async () => {
+  const { healthService } = loadHealthService({
+    redisError: new Error("connect ECONNREFUSED 127.0.0.1:6379"),
+  });
+
+  const result = await healthService.getStatus();
+
+  assert.deepStrictEqual(result, { status: "degraded" });
+});
+
+test("getDeepStatus returns details with status-only dependencies when healthy", async () => {
+  const { healthService } = loadHealthService();
+
+  const result = await healthService.getDeepStatus();
+
+  assert.strictEqual(result.status, "ok");
+  assert.strictEqual(result.service, "GovFlow API");
+  assert.strictEqual(typeof result.timestamp, "string");
+  assert.deepStrictEqual(result.services.database, { status: "ok" });
+  assert.deepStrictEqual(result.services.redis, { status: "ok" });
+});
+
+test("getDeepStatus degrades and never exposes the driver error message", async () => {
+  const { healthService } = loadHealthService({
+    redisError: new Error("connect ECONNREFUSED 127.0.0.1:6379"),
+  });
+
+  const result = await healthService.getDeepStatus();
 
   assert.strictEqual(result.status, "degraded");
   assert.deepStrictEqual(result.services.database, { status: "ok" });
-  assert.strictEqual(result.services.redis.status, "error");
-  assert.strictEqual(result.services.redis.error, "connect ECONNREFUSED");
-  assert.strictEqual(auditCalls.length, 1);
-  assert.deepStrictEqual(auditCalls[0].metadata, {
-    databaseStatus: "ok",
-    redisStatus: "error",
-  });
+  assert.deepStrictEqual(result.services.redis, { status: "error" });
+  assert.strictEqual(result.services.redis.error, undefined);
 });
 
-test("health status degrades when Redis ping is not successful", async () => {
+test("getDeepStatus degrades when the redis ping is not successful", async () => {
   const { healthService } = loadHealthService({
     redisConnected: false,
   });
 
-  const result = await healthService.getStatus();
+  const result = await healthService.getDeepStatus();
 
   assert.strictEqual(result.status, "degraded");
-  assert.strictEqual(result.services.redis.status, "error");
-  assert.strictEqual(result.services.redis.error, "Redis connection failed");
+  assert.deepStrictEqual(result.services.redis, { status: "error" });
 });

@@ -4,6 +4,10 @@ const workflowsRepository = require("../workflows/workflows.repository");
 const workflowStepsRepository = require("../workflow-steps/workflowSteps.repository");
 const workflowExecutionStepsRepository = require("../workflow-execution-steps/workflowExecutionSteps.repository");
 const workflowExecutionsRepository = require("./workflowExecutions.repository");
+const {
+  assertCanAccessExecution,
+  resolveListDepartmentScope,
+} = require("./workflowExecutionAccess");
 const { safeRegisterAuditLog } = require("../../utils/safeAuditLog");
 const {
   validateCreateWorkflowExecution,
@@ -18,6 +22,7 @@ async function listWorkflowExecutions({
   workflowId,
   startedBy,
   status,
+  requester,
 }) {
   const validationErrors = validateListWorkflowExecutionsFilters({
     workflowId,
@@ -37,7 +42,30 @@ async function listWorkflowExecutions({
     workflowId: workflowId || null,
     startedBy: startedBy || null,
     status: status || null,
+    departmentId: null,
   };
+
+  // Object-level scoping: ADMIN lists everything; MANAGER is restricted to
+  // executions whose workflow belongs to their department. A MANAGER without a
+  // department resolves to a null scope and sees an empty result (fail closed),
+  // which also neutralizes a client-supplied `startedBy` used for enumeration.
+  const departmentScope = resolveListDepartmentScope(requester);
+
+  if (departmentScope.scoped) {
+    if (!departmentScope.departmentId) {
+      return {
+        items: [],
+        pagination: {
+          page: safePage,
+          limit: safeLimit,
+          total: 0,
+          totalPages: 0,
+        },
+      };
+    }
+
+    normalizedFilters.departmentId = departmentScope.departmentId;
+  }
 
   const [items, total] = await Promise.all([
     workflowExecutionsRepository.findAll({
@@ -61,7 +89,7 @@ async function listWorkflowExecutions({
   };
 }
 
-async function getWorkflowExecutionById(id) {
+async function getWorkflowExecutionById(id, requester) {
   const validationErrors = validateWorkflowExecutionId(id);
 
   if (validationErrors.length > 0) {
@@ -73,6 +101,9 @@ async function getWorkflowExecutionById(id) {
   if (!execution) {
     throw new AppError("Workflow execution not found", 404);
   }
+
+  // Enforce department scope (throws 404 on cross-department access).
+  assertCanAccessExecution(execution, requester);
 
   return execution;
 }

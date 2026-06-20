@@ -16,6 +16,10 @@ Protected routes require a JWT access token:
 Authorization: Bearer <accessToken>
 ```
 
+Access tokens are HS256 JWTs that carry `iss` (issuer) and `aud` (audience)
+claims plus a unique `jti`. Verification rejects any token whose issuer or
+audience does not match the configured values (`JWT_ISSUER` / `JWT_AUDIENCE`).
+
 ## Response Pattern
 
 ### Success
@@ -59,16 +63,24 @@ Authorization: Bearer <accessToken>
 }
 ```
 
+## Rate Limiting
+
+Abuse-prone endpoints are rate limited per client IP and return HTTP **429**
+with a generic `{ "success": false, "message": "..." }` body when exceeded. See
+[rate-limiting.md](./rate-limiting.md) for the per-route limits, defaults and the
+`trust proxy` configuration.
+
 ## Health
 
 ### GET /health
 
-Checks API, PostgreSQL, and Redis status. This public endpoint records a
-`HEALTH_CHECK_EXECUTED` audit log with the database and Redis status in its
-metadata.
+Public liveness probe. Returns only the aggregated `status` so it never leaks
+infrastructure details (driver messages, host, port, topology) and never writes
+an audit log. Always responds with HTTP 200.
 
 The overall `status` is `ok` only when both PostgreSQL and Redis are reachable;
-otherwise it reports `degraded` instead of crashing the API.
+otherwise it reports `degraded`. The real failure cause (if any) is logged
+server-side only and is never returned in the HTTP body.
 
 Access: public.
 
@@ -79,11 +91,53 @@ Example response:
   "success": true,
   "message": "Health status retrieved successfully",
   "data": {
+    "status": "ok"
+  }
+}
+```
+
+### GET /health/deep
+
+Controlled, in-depth diagnostic of API, PostgreSQL, and Redis status. Each
+dependency reports only its `status` — driver error messages, host, port and
+stack traces are never exposed, even to admins (the real cause is logged
+server-side only). This endpoint records a `HEALTH_CHECK_DEEP_EXECUTED` audit
+log with the requesting admin as the actor.
+
+Access: requires authentication and the `ADMIN` role. Requests without a token
+receive 401; authenticated non-admins (`MANAGER`/`OPERATOR`) receive 403.
+
+Example response:
+
+```json
+{
+  "success": true,
+  "message": "Deep health status retrieved successfully",
+  "data": {
     "status": "ok",
     "service": "GovFlow API",
-    "timestamp": "2026-06-14T00:00:00.000Z",
+    "timestamp": "2026-06-19T00:00:00.000Z",
     "services": {
       "database": { "status": "ok" },
+      "redis": { "status": "ok" }
+    }
+  }
+}
+```
+
+When a dependency is unreachable, its `status` becomes `error` and the overall
+`status` becomes `degraded`:
+
+```json
+{
+  "success": true,
+  "message": "Deep health status retrieved successfully",
+  "data": {
+    "status": "degraded",
+    "service": "GovFlow API",
+    "timestamp": "2026-06-19T00:00:00.000Z",
+    "services": {
+      "database": { "status": "error" },
       "redis": { "status": "ok" }
     }
   }
@@ -129,10 +183,32 @@ Response:
 }
 ```
 
-Audit events:
+Failed authentication:
+
+To prevent account enumeration, every credential failure — unknown email, wrong
+password, or inactive account — returns an identical response and never reveals
+which condition occurred:
+
+```json
+{
+  "success": false,
+  "message": "Invalid email or password"
+}
+```
+
+- HTTP status: `401` for all three cases.
+- The same response timing is preserved across cases: a bcrypt comparison is
+  always performed (against a dummy hash when the email does not exist), so the
+  endpoint cannot be used to distinguish existing from non-existing accounts.
+- Malformed payloads (missing/invalid fields) still return `400` with validation
+  details, since that concerns the request shape rather than account existence.
+
+Audit events (internal only — the specific reason is never exposed to the
+client):
 
 - `LOGIN_SUCCESS`
-- `LOGIN_FAILED`
+- `LOGIN_FAILED` with an internal `reason` of `USER_NOT_FOUND`,
+  `INVALID_PASSWORD` or `USER_INACTIVE`.
 
 ### GET /auth/me
 
@@ -229,7 +305,7 @@ Body:
 {
   "name": "Operator User",
   "email": "operator@govflow.local",
-  "password": "Operator123",
+  "password": "Str0ng!Passw0rd",
   "role": "OPERATOR",
   "departmentId": "uuid"
 }
@@ -243,9 +319,13 @@ Validation rules:
 | --- | ---: | --- |
 | name | yes | string, not empty, max 150 characters |
 | email | yes | valid email, max 255 characters |
-| password | yes | min 8 chars, max 72 chars, at least one letter and one number |
+| password | yes | min 12 characters, max 72 bytes, and at least one uppercase letter, one lowercase letter, one number and one special character |
 | role | yes | `ADMIN`, `MANAGER`, or `OPERATOR` |
 | departmentId | no | valid UUID |
+
+> The maximum is measured in bytes (UTF-8), matching bcrypt's effective 72-byte
+> limit. The strong policy applies to user creation; login only checks that a
+> password is present.
 
 ## Audit Logs
 
@@ -402,6 +482,38 @@ Validation rules:
 | stepOrder | yes | integer greater than 0; unique per workflow |
 | actionType | yes | `MANUAL`, `JIRA_TRANSITION`, `JIRA_COMMENT`, or `NOTIFICATION` |
 | configuration | no | object, not array |
+
+For `JIRA_COMMENT`, `configuration` is required and must use:
+
+```json
+{
+  "issueKey": "ABC-123",
+  "comment": "Workflow processed by GovFlow"
+}
+```
+
+Validation rules:
+
+| Field | Required | Rule |
+| --- | ---: | --- |
+| configuration.issueKey | yes | string, trimmed, max 100 characters, matching the Jira issue key format `^[A-Z][A-Z0-9]+-\d+$` (e.g. `ABC-123`, `DO-32`) |
+| configuration.comment | yes | string, not empty, max 5000 characters |
+
+For `JIRA_TRANSITION`, `configuration` is required and must use:
+
+```json
+{
+  "issueKey": "ABC-123",
+  "transitionId": "11"
+}
+```
+
+Validation rules:
+
+| Field | Required | Rule |
+| --- | ---: | --- |
+| configuration.issueKey | yes | string, trimmed, max 100 characters, matching the Jira issue key format `^[A-Z][A-Z0-9]+-\d+$` (e.g. `ABC-123`, `DO-32`) |
+| configuration.transitionId | yes | string, trim not empty, numeric, max 50 characters |
 
 ## Workflow Executions
 
@@ -571,7 +683,9 @@ Authorization: Bearer <accessToken>
 Behavior:
 
 - validates the execution ID
-- requires the execution to be `PENDING`
+- requires the execution to be `PENDING` for the first processing attempt, or
+  `RUNNING` when BullMQ retries the same job after a retryable technical
+  failure
 - creates a BullMQ job in the workflow processing queue
 - returns `202 Accepted` immediately with status `QUEUED`
 - worker consumes the job later
@@ -801,11 +915,26 @@ Completed execution shape:
           "executionStepId": "uuid",
           "stepId": "uuid",
           "stepOrder": 1,
-          "actionType": "MANUAL",
+          "actionType": "JIRA_COMMENT",
           "output": {
-            "simulated": true,
-            "actionType": "MANUAL",
-            "message": "Manual step completed by processor simulation"
+            "provider": "jira",
+            "operation": "comment",
+            "issueKey": "ABC-123",
+            "commentId": "10001",
+            "status": "completed"
+          }
+        },
+        {
+          "executionStepId": "uuid",
+          "stepId": "uuid",
+          "stepOrder": 2,
+          "actionType": "JIRA_TRANSITION",
+          "output": {
+            "provider": "jira",
+            "operation": "transition",
+            "issueKey": "ABC-123",
+            "transitionId": "11",
+            "status": "completed"
           }
         }
       ]
@@ -868,12 +997,12 @@ Execution not found:
 }
 ```
 
-Execution not `PENDING`:
+Execution not processable:
 
 ```json
 {
   "success": false,
-  "message": "Only PENDING workflow executions can be processed"
+  "message": "Only PENDING or RUNNING workflow executions can be processed"
 }
 ```
 
@@ -882,7 +1011,20 @@ Audit events:
 - `WORKFLOW_EXECUTION_PROCESS_STARTED`
 - `WORKFLOW_EXECUTION_PROCESS_COMPLETED`
 - `WORKFLOW_EXECUTION_PROCESS_FAILED`
+- `WORKFLOW_EXECUTION_PROCESS_TECHNICAL_FAILURE`
 - `WORKFLOW_EXECUTION_RECOVERY_FAILED`
+
+`JIRA_COMMENT` step processing also registers:
+
+- `JIRA_COMMENT_ATTEMPTED`
+- `JIRA_COMMENT_COMPLETED`
+- `JIRA_COMMENT_FAILED`
+
+`JIRA_TRANSITION` step processing also registers:
+
+- `JIRA_TRANSITION_ATTEMPTED`
+- `JIRA_TRANSITION_COMPLETED`
+- `JIRA_TRANSITION_FAILED`
 
 ## RBAC Summary
 

@@ -1,9 +1,14 @@
 const AppError = require("../../errors/AppError");
 const usersRepository = require("../users/users.repository");
-const { comparePassword } = require("../../utils/password");
+const { comparePassword, DUMMY_PASSWORD_HASH } = require("../../utils/password");
 const { signAccessToken } = require("../../utils/jwt");
 const { safeRegisterAuditLog } = require("../../utils/safeAuditLog");
 const { validateLogin } = require("../../validators/auth.validator");
+
+// Single public message for every credential failure so the response never
+// reveals whether the account exists, is inactive or just used a wrong
+// password. The specific reason is kept in the internal audit log only.
+const INVALID_CREDENTIALS_MESSAGE = "Invalid email or password";
 
 async function login({ email, password }) {
   const validationErrors = validateLogin({
@@ -18,6 +23,12 @@ async function login({ email, password }) {
   const normalizedEmail = email.trim().toLowerCase();
   const user = await usersRepository.findByEmail(normalizedEmail);
 
+  // Always run a bcrypt comparison, even when the user does not exist, so the
+  // response timing is the same for existing and non-existing accounts and the
+  // endpoint cannot be used to enumerate valid emails.
+  const hashToCompare = user ? user.password_hash : DUMMY_PASSWORD_HASH;
+  const passwordMatches = await comparePassword(password, hashToCompare);
+
   if (!user) {
     await safeRegisterAuditLog({
       action: "LOGIN_FAILED",
@@ -29,7 +40,22 @@ async function login({ email, password }) {
       },
     });
 
-    throw new AppError("Invalid email or password", 401);
+    throw new AppError(INVALID_CREDENTIALS_MESSAGE, 401);
+  }
+
+  if (!passwordMatches) {
+    await safeRegisterAuditLog({
+      action: "LOGIN_FAILED",
+      entity: "auth",
+      entityId: user.id,
+      actorId: user.id,
+      metadata: {
+        reason: "INVALID_PASSWORD",
+        email: user.email,
+      },
+    });
+
+    throw new AppError(INVALID_CREDENTIALS_MESSAGE, 401);
   }
 
   if (!user.is_active) {
@@ -44,24 +70,7 @@ async function login({ email, password }) {
       },
     });
 
-    throw new AppError("User is inactive", 403);
-  }
-
-  const passwordMatches = await comparePassword(password, user.password_hash);
-
-  if (!passwordMatches) {
-    await safeRegisterAuditLog({
-      action: "LOGIN_FAILED",
-      entity: "auth",
-      entityId: user.id,
-      actorId: user.id,
-      metadata: {
-        reason: "INVALID_PASSWORD",
-        email: user.email,
-      },
-    });
-
-    throw new AppError("Invalid email or password", 401);
+    throw new AppError(INVALID_CREDENTIALS_MESSAGE, 401);
   }
 
   const safeUser = {

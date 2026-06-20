@@ -1,17 +1,18 @@
 const { Router } = require("express");
 
-const healthController = require("./health.controller");
+const jiraController = require("./jira.controller");
 const authMiddleware = require("../../middlewares/auth.middleware");
 const roleMiddleware = require("../../middlewares/role.middleware");
+const { jiraRateLimiter } = require("../../middlewares/rate-limit.middleware");
 
 const router = Router();
 
-router.get("/", healthController.check);
 router.get(
-  "/deep",
+  "/test-connection",
+  jiraRateLimiter,
   authMiddleware,
   roleMiddleware(["ADMIN"]),
-  healthController.deep
+  jiraController.testConnection
 );
 
 module.exports = router;

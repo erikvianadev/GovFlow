@@ -5,6 +5,7 @@ const { successResponse } = require("../../utils/apiResponse");
 const list = asyncHandler(async (req, res) => {
   const result = await workflowExecutionStepsService.listWorkflowExecutionSteps({
     executionId: req.params.executionId,
+    requester: req.user,
   });
 
   return successResponse(res, {

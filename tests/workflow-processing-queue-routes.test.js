@@ -200,6 +200,7 @@ test("POST /workflow-executions/:id/enqueue accepts ADMIN users", async () => {
       {
         executionId,
         processedBy: adminUser.id,
+        requester: adminUser,
       },
     ]);
   });
@@ -222,6 +223,7 @@ test("POST /workflow-executions/:id/enqueue accepts MANAGER users", async () => 
       {
         executionId,
         processedBy: managerUser.id,
+        requester: managerUser,
       },
     ]);
   });
@@ -289,6 +291,7 @@ test("POST /workflow-executions/:id/process queues jobs for ADMIN users", async 
       {
         executionId,
         processedBy: adminUser.id,
+        requester: adminUser,
       },
     ]);
   });
@@ -311,6 +314,7 @@ test("POST /workflow-executions/:id/process queues jobs for MANAGER users", asyn
       {
         executionId,
         processedBy: managerUser.id,
+        requester: managerUser,
       },
     ]);
   });

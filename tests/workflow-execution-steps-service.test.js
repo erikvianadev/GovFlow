@@ -16,6 +16,9 @@ const workflowExecutionStepsRepositoryPath = path.join(
 );
 
 const validExecutionId = "11111111-1111-4111-8111-111111111111";
+const adminRequester = { role: "ADMIN" };
+const departmentA = "33333333-3333-4333-8333-333333333333";
+const departmentB = "44444444-4444-4444-8444-444444444444";
 
 function mockModule(modulePath, exports) {
   delete require.cache[modulePath];
@@ -64,6 +67,7 @@ test("listWorkflowExecutionSteps validates execution IDs", async () => {
   await assert.rejects(
     service.listWorkflowExecutionSteps({
       executionId: "not-a-uuid",
+      requester: adminRequester,
     }),
     (error) =>
       error.statusCode === 400 &&
@@ -81,6 +85,7 @@ test("listWorkflowExecutionSteps returns 404 when execution does not exist", asy
   await assert.rejects(
     service.listWorkflowExecutionSteps({
       executionId: validExecutionId,
+      requester: adminRequester,
     }),
     (error) =>
       error.statusCode === 404 &&
@@ -89,6 +94,43 @@ test("listWorkflowExecutionSteps returns 404 when execution does not exist", asy
 
   assert.strictEqual(calls.findById, validExecutionId);
   assert.strictEqual(calls.findByExecutionId, null);
+});
+
+test("listWorkflowExecutionSteps returns 404 for a manager from another department", async () => {
+  const steps = [{ id: "execution-step-1" }];
+  const { service, calls } = loadService({
+    execution: { id: validExecutionId, department_id: departmentA },
+    steps,
+  });
+
+  await assert.rejects(
+    service.listWorkflowExecutionSteps({
+      executionId: validExecutionId,
+      requester: { role: "MANAGER", department_id: departmentB },
+    }),
+    (error) =>
+      error.statusCode === 404 &&
+      error.message === "Workflow execution not found"
+  );
+
+  // Steps must not be fetched once access is denied.
+  assert.strictEqual(calls.findByExecutionId, null);
+});
+
+test("listWorkflowExecutionSteps returns steps for a manager of the same department", async () => {
+  const steps = [{ id: "execution-step-1" }];
+  const { service, calls } = loadService({
+    execution: { id: validExecutionId, department_id: departmentA },
+    steps,
+  });
+
+  const result = await service.listWorkflowExecutionSteps({
+    executionId: validExecutionId,
+    requester: { role: "MANAGER", department_id: departmentA },
+  });
+
+  assert.strictEqual(calls.findByExecutionId, validExecutionId);
+  assert.deepStrictEqual(result, { items: steps });
 });
 
 test("listWorkflowExecutionSteps returns steps for an existing execution", async () => {
@@ -106,6 +148,7 @@ test("listWorkflowExecutionSteps returns steps for an existing execution", async
 
   const result = await service.listWorkflowExecutionSteps({
     executionId: validExecutionId,
+    requester: adminRequester,
   });
 
   assert.strictEqual(calls.findById, validExecutionId);

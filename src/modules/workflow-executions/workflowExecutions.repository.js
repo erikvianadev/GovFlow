@@ -14,6 +14,11 @@ function buildWorkflowExecutionsFiltersQuery(filters = {}) {
     conditions.push(`workflow_executions.started_by = $${values.length}`);
   }
 
+  if (filters.departmentId) {
+    values.push(filters.departmentId);
+    conditions.push(`workflows.department_id = $${values.length}`);
+  }
+
   if (filters.status) {
     values.push(filters.status);
     conditions.push(`workflow_executions.status = $${values.length}`);
@@ -37,6 +42,7 @@ async function findAll({ limit, offset, filters }) {
         workflow_executions.id,
         workflow_executions.workflow_id,
         workflows.name AS workflow_name,
+        workflows.department_id,
         workflow_executions.started_by,
         users.email AS started_by_email,
         workflow_executions.status,
@@ -69,6 +75,8 @@ async function countAll({ filters }) {
     `
       SELECT COUNT(*)::int AS total
       FROM workflow_executions
+      LEFT JOIN workflows
+        ON workflows.id = workflow_executions.workflow_id
       ${whereClause}
     `,
     values
@@ -84,6 +92,7 @@ async function findById(id) {
         workflow_executions.id,
         workflow_executions.workflow_id,
         workflows.name AS workflow_name,
+        workflows.department_id,
         workflow_executions.started_by,
         users.email AS started_by_email,
         workflow_executions.status,
