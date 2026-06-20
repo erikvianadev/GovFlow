@@ -5,8 +5,12 @@ const VALID_ACTION_TYPES = [
   "NOTIFICATION",
 ];
 const JIRA_COMMENT_MAX_LENGTH = 5000;
-const JIRA_TRANSITION_ISSUE_KEY_MAX_LENGTH = 100;
+const JIRA_ISSUE_KEY_MAX_LENGTH = 100;
 const JIRA_TRANSITION_ID_MAX_LENGTH = 50;
+
+// Standard Jira issue key format: an uppercase project key starting with a
+// letter, followed by a hyphen and the issue number (e.g. ABC-123, DO-32).
+const JIRA_ISSUE_KEY_REGEX = /^[A-Z][A-Z0-9]+-\d+$/;
 
 function validateCreateWorkflowStep(payload) {
   const errors = [];
@@ -186,12 +190,7 @@ function validateJiraCommentFields(configuration, errors) {
     return;
   }
 
-  validateRequiredNonEmptyString(
-    configuration.issueKey,
-    "configuration.issueKey",
-    "Jira issue key",
-    errors
-  );
+  validateJiraIssueKey(configuration.issueKey, errors);
 
   validateRequiredNonEmptyString(
     configuration.comment,
@@ -224,12 +223,7 @@ function validateJiraTransitionFields(configuration, errors) {
     return;
   }
 
-  validateRequiredNonEmptyString(
-    configuration.issueKey,
-    "configuration.issueKey",
-    "Jira issue key",
-    errors
-  );
+  validateJiraIssueKey(configuration.issueKey, errors);
 
   validateRequiredNonEmptyString(
     configuration.transitionId,
@@ -237,16 +231,6 @@ function validateJiraTransitionFields(configuration, errors) {
     "Jira transition ID",
     errors
   );
-
-  if (
-    typeof configuration.issueKey === "string" &&
-    configuration.issueKey.length > JIRA_TRANSITION_ISSUE_KEY_MAX_LENGTH
-  ) {
-    errors.push({
-      field: "configuration.issueKey",
-      message: `Jira issue key must be at most ${JIRA_TRANSITION_ISSUE_KEY_MAX_LENGTH} characters`,
-    });
-  }
 
   if (
     typeof configuration.transitionId === "string" &&
@@ -266,6 +250,51 @@ function validateJiraTransitionFields(configuration, errors) {
     errors.push({
       field: "configuration.transitionId",
       message: "Jira transition ID must be numeric",
+    });
+  }
+}
+
+function validateJiraIssueKey(value, errors) {
+  const field = "configuration.issueKey";
+
+  if (value === undefined || value === null) {
+    errors.push({
+      field,
+      message: "Jira issue key is required",
+    });
+    return;
+  }
+
+  if (typeof value !== "string") {
+    errors.push({
+      field,
+      message: "Jira issue key must be a string",
+    });
+    return;
+  }
+
+  const trimmedValue = value.trim();
+
+  if (trimmedValue.length === 0) {
+    errors.push({
+      field,
+      message: "Jira issue key cannot be empty",
+    });
+    return;
+  }
+
+  if (trimmedValue.length > JIRA_ISSUE_KEY_MAX_LENGTH) {
+    errors.push({
+      field,
+      message: `Jira issue key must be at most ${JIRA_ISSUE_KEY_MAX_LENGTH} characters`,
+    });
+    return;
+  }
+
+  if (!JIRA_ISSUE_KEY_REGEX.test(trimmedValue)) {
+    errors.push({
+      field,
+      message: "Jira issue key must be a valid Jira issue key (e.g. ABC-123)",
     });
   }
 }
@@ -334,6 +363,6 @@ module.exports = {
   validateWorkflowId,
   JIRA_COMMENT_MAX_LENGTH,
   JIRA_TRANSITION_ID_MAX_LENGTH,
-  JIRA_TRANSITION_ISSUE_KEY_MAX_LENGTH,
+  JIRA_ISSUE_KEY_MAX_LENGTH,
   VALID_ACTION_TYPES,
 };

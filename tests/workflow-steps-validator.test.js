@@ -4,7 +4,7 @@ const test = require("node:test");
 const {
   JIRA_COMMENT_MAX_LENGTH,
   JIRA_TRANSITION_ID_MAX_LENGTH,
-  JIRA_TRANSITION_ISSUE_KEY_MAX_LENGTH,
+  JIRA_ISSUE_KEY_MAX_LENGTH,
   validateCreateWorkflowStep,
   validateJiraCommentConfiguration,
   validateJiraTransitionConfiguration,
@@ -99,13 +99,13 @@ test("validateJiraTransitionConfiguration rejects missing and invalid fields", (
 
   assert.deepStrictEqual(
     validateJiraTransitionConfiguration({
-      issueKey: "x".repeat(JIRA_TRANSITION_ISSUE_KEY_MAX_LENGTH + 1),
+      issueKey: "X".repeat(JIRA_ISSUE_KEY_MAX_LENGTH + 1),
       transitionId: "x".repeat(JIRA_TRANSITION_ID_MAX_LENGTH + 1),
     }),
     [
       {
         field: "configuration.issueKey",
-        message: `Jira issue key must be at most ${JIRA_TRANSITION_ISSUE_KEY_MAX_LENGTH} characters`,
+        message: `Jira issue key must be at most ${JIRA_ISSUE_KEY_MAX_LENGTH} characters`,
       },
       {
         field: "configuration.transitionId",
@@ -197,6 +197,91 @@ test("validateJiraCommentConfiguration rejects missing and oversized fields", ()
       },
     ]
   );
+});
+
+// Run an issueKey against both JIRA_COMMENT and JIRA_TRANSITION and return only
+// the issueKey errors, so the format rule is asserted consistently for both.
+function issueKeyErrorsForBothActions(issueKey) {
+  const commentErrors = validateJiraCommentConfiguration({
+    issueKey,
+    comment: "Valid comment",
+  }).filter((error) => error.field === "configuration.issueKey");
+
+  const transitionErrors = validateJiraTransitionConfiguration({
+    issueKey,
+    transitionId: "11",
+  }).filter((error) => error.field === "configuration.issueKey");
+
+  return { commentErrors, transitionErrors };
+}
+
+test("issueKey accepts the DO-32 smoke key for both Jira actions", () => {
+  const { commentErrors, transitionErrors } = issueKeyErrorsForBothActions("DO-32");
+
+  assert.deepStrictEqual(commentErrors, []);
+  assert.deepStrictEqual(transitionErrors, []);
+});
+
+test("issueKey accepts a key with surrounding whitespace (trimmed before validation)", () => {
+  const { commentErrors, transitionErrors } =
+    issueKeyErrorsForBothActions("  DO-32  ");
+
+  assert.deepStrictEqual(commentErrors, []);
+  assert.deepStrictEqual(transitionErrors, []);
+});
+
+test("issueKey rejects invalid formats consistently for both Jira actions", () => {
+  const invalidFormatCases = [
+    "do-32", // lowercase
+    "DO32", // missing hyphen
+    "1DO-32", // project starts with a number
+    "DO-", // missing issue number
+  ];
+
+  for (const issueKey of invalidFormatCases) {
+    const { commentErrors, transitionErrors } =
+      issueKeyErrorsForBothActions(issueKey);
+
+    const expected = [
+      {
+        field: "configuration.issueKey",
+        message: "Jira issue key must be a valid Jira issue key (e.g. ABC-123)",
+      },
+    ];
+
+    assert.deepStrictEqual(commentErrors, expected, `comment: ${issueKey}`);
+    assert.deepStrictEqual(transitionErrors, expected, `transition: ${issueKey}`);
+  }
+});
+
+test("issueKey rejects an empty string for both Jira actions", () => {
+  const { commentErrors, transitionErrors } = issueKeyErrorsForBothActions("");
+
+  const expected = [
+    {
+      field: "configuration.issueKey",
+      message: "Jira issue key cannot be empty",
+    },
+  ];
+
+  assert.deepStrictEqual(commentErrors, expected);
+  assert.deepStrictEqual(transitionErrors, expected);
+});
+
+test("issueKey rejects an oversized key for both Jira actions", () => {
+  const oversized = `AB-${"1".repeat(JIRA_ISSUE_KEY_MAX_LENGTH)}`;
+  const { commentErrors, transitionErrors } =
+    issueKeyErrorsForBothActions(oversized);
+
+  const expected = [
+    {
+      field: "configuration.issueKey",
+      message: `Jira issue key must be at most ${JIRA_ISSUE_KEY_MAX_LENGTH} characters`,
+    },
+  ];
+
+  assert.deepStrictEqual(commentErrors, expected);
+  assert.deepStrictEqual(transitionErrors, expected);
 });
 
 test("validateCreateWorkflowStep rejects invalid required fields", () => {

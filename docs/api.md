@@ -496,7 +496,7 @@ Validation rules:
 
 | Field | Required | Rule |
 | --- | ---: | --- |
-| configuration.issueKey | yes | string, not empty |
+| configuration.issueKey | yes | string, trimmed, max 100 characters, matching the Jira issue key format `^[A-Z][A-Z0-9]+-\d+$` (e.g. `ABC-123`, `DO-32`) |
 | configuration.comment | yes | string, not empty, max 5000 characters |
 
 For `JIRA_TRANSITION`, `configuration` is required and must use:
@@ -512,7 +512,7 @@ Validation rules:
 
 | Field | Required | Rule |
 | --- | ---: | --- |
-| configuration.issueKey | yes | string, trim not empty, max 100 characters |
+| configuration.issueKey | yes | string, trimmed, max 100 characters, matching the Jira issue key format `^[A-Z][A-Z0-9]+-\d+$` (e.g. `ABC-123`, `DO-32`) |
 | configuration.transitionId | yes | string, trim not empty, numeric, max 50 characters |
 
 ## Workflow Executions
