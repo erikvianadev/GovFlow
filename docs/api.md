@@ -63,12 +63,13 @@ Authorization: Bearer <accessToken>
 
 ### GET /health
 
-Checks API, PostgreSQL, and Redis status. This public endpoint records a
-`HEALTH_CHECK_EXECUTED` audit log with the database and Redis status in its
-metadata.
+Public liveness probe. Returns only the aggregated `status` so it never leaks
+infrastructure details (driver messages, host, port, topology) and never writes
+an audit log. Always responds with HTTP 200.
 
 The overall `status` is `ok` only when both PostgreSQL and Redis are reachable;
-otherwise it reports `degraded` instead of crashing the API.
+otherwise it reports `degraded`. The real failure cause (if any) is logged
+server-side only and is never returned in the HTTP body.
 
 Access: public.
 
@@ -79,11 +80,53 @@ Example response:
   "success": true,
   "message": "Health status retrieved successfully",
   "data": {
+    "status": "ok"
+  }
+}
+```
+
+### GET /health/deep
+
+Controlled, in-depth diagnostic of API, PostgreSQL, and Redis status. Each
+dependency reports only its `status` — driver error messages, host, port and
+stack traces are never exposed, even to admins (the real cause is logged
+server-side only). This endpoint records a `HEALTH_CHECK_DEEP_EXECUTED` audit
+log with the requesting admin as the actor.
+
+Access: requires authentication and the `ADMIN` role. Requests without a token
+receive 401; authenticated non-admins (`MANAGER`/`OPERATOR`) receive 403.
+
+Example response:
+
+```json
+{
+  "success": true,
+  "message": "Deep health status retrieved successfully",
+  "data": {
     "status": "ok",
     "service": "GovFlow API",
-    "timestamp": "2026-06-14T00:00:00.000Z",
+    "timestamp": "2026-06-19T00:00:00.000Z",
     "services": {
       "database": { "status": "ok" },
+      "redis": { "status": "ok" }
+    }
+  }
+}
+```
+
+When a dependency is unreachable, its `status` becomes `error` and the overall
+`status` becomes `degraded`:
+
+```json
+{
+  "success": true,
+  "message": "Deep health status retrieved successfully",
+  "data": {
+    "status": "degraded",
+    "service": "GovFlow API",
+    "timestamp": "2026-06-19T00:00:00.000Z",
+    "services": {
+      "database": { "status": "error" },
       "redis": { "status": "ok" }
     }
   }

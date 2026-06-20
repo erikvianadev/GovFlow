@@ -1,17 +1,37 @@
 const db = require("../../config/database"); // import database connection utilities
 const { checkRedisConnection } = require("../../config/redis"); // import the function to check Redis connection health
-const auditLogsService = require("../audit-logs/auditLogs.service");
 
-async function getStatus() {
+async function collectDependencyStatuses() {
   const dbStatus = await getDatabaseStatus(); // verify database connection status
   const redisStatus = await getRedisStatus();
-  await registerHealthCheckAuditLog(dbStatus, redisStatus);
 
   return {
-    status:
+    overall:
       dbStatus.status === "ok" && redisStatus.status === "ok"
         ? "ok"
         : "degraded",
+    dbStatus,
+    redisStatus,
+  };
+}
+
+// Public, side-effect-free status. Exposes only the aggregated status so that
+// the public endpoint never leaks infrastructure details nor writes audit logs.
+async function getStatus() {
+  const { overall } = await collectDependencyStatuses();
+
+  return {
+    status: overall,
+  };
+}
+
+// Detailed status for the ADMIN-only deep endpoint. Still never exposes driver
+// error messages, host, port, stack or any internal topology.
+async function getDeepStatus() {
+  const { overall, dbStatus, redisStatus } = await collectDependencyStatuses();
+
+  return {
+    status: overall,
     service: "GovFlow API",
     timestamp: new Date().toISOString(),
     services: {
@@ -23,16 +43,18 @@ async function getStatus() {
 
 async function getDatabaseStatus() {
   try {
-    await db.checkDatabaseConnection(); 
-    
+    await db.checkDatabaseConnection();
+
     return {
       status: "ok",
-    }
-  } catch (e) {
+    };
+  } catch (error) {
+    // Log the real cause server-side only; never return it in the HTTP body.
+    console.error("Health check database failure:", error);
+
     return {
       status: "error",
-      error: e.message || "Database connection failed",
-    }
+    };
   }
 }
 
@@ -48,30 +70,16 @@ async function getRedisStatus() {
       status: "ok",
     };
   } catch (error) {
+    // Log the real cause server-side only; never return it in the HTTP body.
+    console.error("Health check redis failure:", error);
+
     return {
       status: "error",
-      error: error.message || "Redis connection failed",
     };
   }
 }
 
-async function registerHealthCheckAuditLog(dbStatus, redisStatus) {
-  try {
-    await auditLogsService.register({
-      action: "HEALTH_CHECK_EXECUTED",
-      entity: "health",
-      entityId: "health-endpoint",
-      metadata: {
-        databaseStatus: dbStatus.status,
-        redisStatus: redisStatus.status,
-      },
-    });
-  } catch (error) {
-    console.error("Failed to register health check audit log:", error);
-  }
-}
-
-
 module.exports = {
   getStatus,
-}
+  getDeepStatus,
+};
