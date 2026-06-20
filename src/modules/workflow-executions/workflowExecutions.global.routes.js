@@ -6,6 +6,9 @@ const workflowProcessingJobController = require("../workflow-processing/workflow
 const workflowExecutionRecoveryController = require("../workflow-processing/workflowExecutionRecovery.controller");
 const authMiddleware = require("../../middlewares/auth.middleware");
 const roleMiddleware = require("../../middlewares/role.middleware");
+const {
+  adminOperationsRateLimiter,
+} = require("../../middlewares/rate-limit.middleware");
 
 const router = Router();
 
@@ -20,6 +23,7 @@ router.use("/:executionId/steps", workflowExecutionStepsRoutes);
 
 router.post(
   "/recovery/stale-running",
+  adminOperationsRateLimiter,
   authMiddleware,
   roleMiddleware(["ADMIN"]),
   workflowExecutionRecoveryController.recoverStaleRunning

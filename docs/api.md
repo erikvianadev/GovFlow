@@ -59,6 +59,13 @@ Authorization: Bearer <accessToken>
 }
 ```
 
+## Rate Limiting
+
+Abuse-prone endpoints are rate limited per client IP and return HTTP **429**
+with a generic `{ "success": false, "message": "..." }` body when exceeded. See
+[rate-limiting.md](./rate-limiting.md) for the per-route limits, defaults and the
+`trust proxy` configuration.
+
 ## Health
 
 ### GET /health

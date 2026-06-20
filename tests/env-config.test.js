@@ -213,3 +213,47 @@ test("env accepts WORKFLOW_EXECUTION_RUNNING_TIMEOUT_MINUTES", () => {
   assert.strictEqual(result.status, 0, result.stderr);
   assert.match(result.stdout, /45$/);
 });
+
+// Load env in an isolated child and print the resolved trustProxyHops value.
+function loadTrustProxyHops(override = {}) {
+  const result = spawnSync(
+    process.execPath,
+    [
+      "-e",
+      "process.stdout.write('HOPS=' + require(process.env.__ENV_MODULE_PATH).app.trustProxyHops)",
+    ],
+    {
+      cwd: os.tmpdir(),
+      env: {
+        ...process.env,
+        ...VALID_ENV,
+        ...override,
+        __ENV_MODULE_PATH: envModulePath,
+      },
+      encoding: "utf8",
+    }
+  );
+
+  assert.strictEqual(result.status, 0, result.stderr);
+
+  return result.stdout;
+}
+
+test("trustProxyHops defaults to 0 when TRUST_PROXY_HOPS is not set", () => {
+  assert.match(loadTrustProxyHops(), /HOPS=0$/);
+});
+
+test("trustProxyHops accepts a valid integer hop count", () => {
+  assert.match(loadTrustProxyHops({ TRUST_PROXY_HOPS: "1" }), /HOPS=1$/);
+  assert.match(loadTrustProxyHops({ TRUST_PROXY_HOPS: "2" }), /HOPS=2$/);
+});
+
+test("trustProxyHops never trusts the permissive boolean 'true'", () => {
+  assert.match(loadTrustProxyHops({ TRUST_PROXY_HOPS: "true" }), /HOPS=0$/);
+});
+
+test("trustProxyHops falls back to 0 for negative or non-integer values", () => {
+  assert.match(loadTrustProxyHops({ TRUST_PROXY_HOPS: "-1" }), /HOPS=0$/);
+  assert.match(loadTrustProxyHops({ TRUST_PROXY_HOPS: "1.5" }), /HOPS=0$/);
+  assert.match(loadTrustProxyHops({ TRUST_PROXY_HOPS: "abc" }), /HOPS=0$/);
+});

@@ -58,6 +58,25 @@ function parsePositiveNumber(value, fallback) {
   return parsedValue;
 }
 
+// Resolve the Express "trust proxy" hop count. This is intentionally an integer
+// (number of trusted reverse proxies in front of the API), never the boolean
+// `true`: trusting every proxy would let clients spoof X-Forwarded-For and
+// bypass per-IP rate limiting. Anything non-numeric, negative or the literal
+// "true" falls back to the safe default 0 (API exposed directly, no proxy).
+function parseTrustProxyHops(value, fallback = 0) {
+  if (value === undefined || value === null || String(value).trim() === "") {
+    return fallback;
+  }
+
+  const parsedValue = Number(value);
+
+  if (!Number.isInteger(parsedValue) || parsedValue < 0) {
+    return fallback;
+  }
+
+  return parsedValue;
+}
+
 // Resolve and validate NODE_ENV. Defaults to "production" (the safe default),
 // so a misconfigured deployment never silently leaks development error details.
 function resolveNodeEnv() {
@@ -101,12 +120,34 @@ const env = {
     port: Number(process.env.PORT) || 3000, // Use PORT from environment variables or default to 3000
     nodeEnv, // Validated NODE_ENV with a safe default
     corsOrigins: parseList(process.env.CORS_ORIGINS, ["http://localhost:3000"]), // Allowlisted CORS origins
+    // Number of trusted reverse proxies in front of the API. Safe default 0
+    // (API exposed directly). Set to the exact number of trusted proxies; never
+    // a boolean (see parseTrustProxyHops).
+    trustProxyHops: parseTrustProxyHops(process.env.TRUST_PROXY_HOPS, 0),
   },
 
   rateLimit: { // Rate limiting configuration with safe defaults
     login: {
       windowMs: Number(process.env.LOGIN_RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
       max: Number(process.env.LOGIN_RATE_LIMIT_MAX) || 10,
+    },
+    mutating: {
+      windowMs:
+        Number(process.env.MUTATING_RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+      max: Number(process.env.MUTATING_RATE_LIMIT_MAX) || 50,
+    },
+    processing: {
+      windowMs:
+        Number(process.env.PROCESSING_RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+      max: Number(process.env.PROCESSING_RATE_LIMIT_MAX) || 60,
+    },
+    jira: {
+      windowMs: Number(process.env.JIRA_RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+      max: Number(process.env.JIRA_RATE_LIMIT_MAX) || 30,
+    },
+    adminOperations: {
+      windowMs: Number(process.env.ADMIN_RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+      max: Number(process.env.ADMIN_RATE_LIMIT_MAX) || 20,
     },
   },
 

@@ -10,6 +10,11 @@ const errorMiddleware = require('./middlewares/error.middleware');
 
 const app = express();
 
+// Trust exactly the configured number of reverse proxies (default 0 = none) so
+// per-IP rate limiting keys on the real client IP. Never set to `true`, which
+// would let clients spoof X-Forwarded-For and bypass the limiter.
+app.set("trust proxy", env.app.trustProxyHops);
+
 const corsOptions = {
   origin(origin, callback) {
     // Allow requests without an Origin header (server-to-server, curl, health
