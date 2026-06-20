@@ -172,10 +172,32 @@ Response:
 }
 ```
 
-Audit events:
+Failed authentication:
+
+To prevent account enumeration, every credential failure — unknown email, wrong
+password, or inactive account — returns an identical response and never reveals
+which condition occurred:
+
+```json
+{
+  "success": false,
+  "message": "Invalid email or password"
+}
+```
+
+- HTTP status: `401` for all three cases.
+- The same response timing is preserved across cases: a bcrypt comparison is
+  always performed (against a dummy hash when the email does not exist), so the
+  endpoint cannot be used to distinguish existing from non-existing accounts.
+- Malformed payloads (missing/invalid fields) still return `400` with validation
+  details, since that concerns the request shape rather than account existence.
+
+Audit events (internal only — the specific reason is never exposed to the
+client):
 
 - `LOGIN_SUCCESS`
-- `LOGIN_FAILED`
+- `LOGIN_FAILED` with an internal `reason` of `USER_NOT_FOUND`,
+  `INVALID_PASSWORD` or `USER_INACTIVE`.
 
 ### GET /auth/me
 
