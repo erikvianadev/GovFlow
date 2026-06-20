@@ -162,6 +162,11 @@ const env = {
   jwt: { // JWT configuration, the secret is required, has no fallback, and must be strong
     secret: requireStrongSecret("JWT_SECRET"),
     expiresIn: process.env.JWT_EXPIRES_IN || "1h",
+    // Issuer/audience are bound into every token and enforced on verification.
+    // They have safe defaults so existing deployments keep working without new
+    // configuration.
+    issuer: process.env.JWT_ISSUER || "govflow",
+    audience: process.env.JWT_AUDIENCE || "govflow-api",
   },
 
   redis: { // Redis configuration; password required in production, optional in dev/test

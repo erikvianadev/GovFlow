@@ -1,3 +1,4 @@
+const { randomUUID } = require("node:crypto");
 const jwt = require("jsonwebtoken");
 
 const env = require("../config/env");
@@ -12,12 +13,17 @@ function signAccessToken(user) {
   return jwt.sign(payload, env.jwt.secret, {
     algorithm: "HS256",
     expiresIn: env.jwt.expiresIn,
+    issuer: env.jwt.issuer,
+    audience: env.jwt.audience,
+    jwtid: randomUUID(),
   });
 }
 
 function verifyAccessToken(token) {
   return jwt.verify(token, env.jwt.secret, {
     algorithms: ["HS256"],
+    issuer: env.jwt.issuer,
+    audience: env.jwt.audience,
   });
 }
 

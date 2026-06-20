@@ -16,6 +16,10 @@ Protected routes require a JWT access token:
 Authorization: Bearer <accessToken>
 ```
 
+Access tokens are HS256 JWTs that carry `iss` (issuer) and `aud` (audience)
+claims plus a unique `jti`. Verification rejects any token whose issuer or
+audience does not match the configured values (`JWT_ISSUER` / `JWT_AUDIENCE`).
+
 ## Response Pattern
 
 ### Success
@@ -301,7 +305,7 @@ Body:
 {
   "name": "Operator User",
   "email": "operator@govflow.local",
-  "password": "Operator123",
+  "password": "Str0ng!Passw0rd",
   "role": "OPERATOR",
   "departmentId": "uuid"
 }
@@ -315,9 +319,13 @@ Validation rules:
 | --- | ---: | --- |
 | name | yes | string, not empty, max 150 characters |
 | email | yes | valid email, max 255 characters |
-| password | yes | min 8 chars, max 72 chars, at least one letter and one number |
+| password | yes | min 12 characters, max 72 bytes, and at least one uppercase letter, one lowercase letter, one number and one special character |
 | role | yes | `ADMIN`, `MANAGER`, or `OPERATOR` |
 | departmentId | no | valid UUID |
+
+> The maximum is measured in bytes (UTF-8), matching bcrypt's effective 72-byte
+> limit. The strong policy applies to user creation; login only checks that a
+> password is present.
 
 ## Audit Logs
 

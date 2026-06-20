@@ -113,6 +113,11 @@ function validateEmail(email, errors) {
   }
 }
 
+// Maximum password length in bytes. bcrypt silently truncates input beyond 72
+// bytes, so we reject longer passwords (measured in bytes, not characters, so
+// multibyte input cannot slip past the effective bcrypt limit).
+const MAX_PASSWORD_BYTES = 72;
+
 function validatePassword(password, errors) {
   if (password === undefined || password === null) {
     errors.push({
@@ -130,29 +135,32 @@ function validatePassword(password, errors) {
     return;
   }
 
-  if (password.length < 8) {
+  if (password.length < 12) {
     errors.push({
       field: "password",
-      message: "Password must be at least 8 characters",
+      message: "Password must be at least 12 characters",
     });
     return;
   }
 
-  if (password.length > 72) {
+  if (Buffer.byteLength(password, "utf8") > MAX_PASSWORD_BYTES) {
     errors.push({
       field: "password",
-      message: "Password must be at most 72 characters",
+      message: `Password must be at most ${MAX_PASSWORD_BYTES} bytes`,
     });
     return;
   }
 
-  const hasLetter = /[A-Za-z]/.test(password);
+  const hasUppercase = /[A-Z]/.test(password);
+  const hasLowercase = /[a-z]/.test(password);
   const hasNumber = /\d/.test(password);
+  const hasSpecial = /[^A-Za-z0-9]/.test(password);
 
-  if (!hasLetter || !hasNumber) {
+  if (!hasUppercase || !hasLowercase || !hasNumber || !hasSpecial) {
     errors.push({
       field: "password",
-      message: "Password must contain at least one letter and one number",
+      message:
+        "Password must contain at least one uppercase letter, one lowercase letter, one number and one special character",
     });
   }
 }
