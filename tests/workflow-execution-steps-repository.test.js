@@ -129,6 +129,52 @@ test("updateStatus updates workflow execution step lifecycle fields and clears e
   assert.strictEqual(updated.error_message, null);
 });
 
+test("claimPendingStep atomically claims a PENDING step", async () => {
+  let capturedSql;
+  let capturedValues;
+  const db = {
+    query: async (sql, values) => {
+      capturedSql = sql.replace(/\s+/g, " ").trim().toLowerCase();
+      capturedValues = values;
+      return {
+        rows: [
+          {
+            id: "execution-step-1",
+            execution_id: "execution-1",
+            step_id: "step-1",
+            status: "RUNNING",
+          },
+        ],
+      };
+    },
+  };
+
+  const claimed = await repository.claimPendingStep(
+    { id: "execution-step-1" },
+    db
+  );
+
+  assert.match(
+    capturedSql,
+    /update workflow_execution_steps set status = 'running', started_at = coalesce\(started_at, now\(\)\), error_message = null, updated_at = now\(\) where id = \$1 and status = 'pending' returning/
+  );
+  assert.deepStrictEqual(capturedValues, ["execution-step-1"]);
+  assert.strictEqual(claimed.status, "RUNNING");
+});
+
+test("claimPendingStep returns undefined when the step is not PENDING", async () => {
+  const db = {
+    query: async () => ({ rows: [] }),
+  };
+
+  const claimed = await repository.claimPendingStep(
+    { id: "execution-step-1" },
+    db
+  );
+
+  assert.strictEqual(claimed, undefined);
+});
+
 test("failRunningByExecutionId fails only RUNNING steps for an execution", async () => {
   let capturedSql;
   let capturedValues;

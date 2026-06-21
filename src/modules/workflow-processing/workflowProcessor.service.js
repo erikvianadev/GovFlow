@@ -70,12 +70,80 @@ async function processWorkflowExecution({ executionId, processedBy }) {
   const stepOutputs = [];
 
   for (const step of steps) {
-    await workflowExecutionStepsRepository.updateStatus({
+    // Atomically claim the step (PENDING -> RUNNING). A claim that matches no
+    // rows means the step is no longer PENDING, so we must not re-run its
+    // handler (and therefore never duplicate an external Jira side effect on a
+    // BullMQ retry). How we react depends on the step's current state.
+    const claimedStep = await workflowExecutionStepsRepository.claimPendingStep({
       id: step.id,
-      status: "RUNNING",
-      startedAt: new Date(),
-      errorMessage: null,
     });
+
+    if (!claimedStep) {
+      // A previously COMPLETED step is the expected retry case: skip it
+      // idempotently and keep it in the aggregated result so the execution
+      // result preserves step count and ordering. The placeholder output is
+      // replaced by the persisted per-step output in a later sub-block.
+      if (step.status === "COMPLETED") {
+        await safeRegisterAuditLog({
+          action: "WORKFLOW_EXECUTION_STEP_SKIPPED",
+          entity: "workflow_execution_step",
+          entityId: step.id,
+          actorId: processedBy,
+          metadata: {
+            workflowId: execution.workflow_id,
+            stepId: step.step_id,
+            stepOrder: step.step_order,
+            reason: "already_completed",
+          },
+        });
+
+        stepOutputs.push({
+          executionStepId: step.id,
+          stepId: step.step_id,
+          stepOrder: step.step_order,
+          actionType: step.action_type,
+          output: { skipped: true, reason: "already_completed" },
+        });
+
+        continue;
+      }
+
+      // Any other non-claimable state (RUNNING left by a crashed attempt, a
+      // terminal FAILED, or a PENDING snapshot lost to a concurrent claim) is
+      // unresolvable here: we cannot confirm completion, so we must not call
+      // the handler nor finalize the execution as COMPLETED. Raise a controlled
+      // retryable error so BullMQ retries; the step is left untouched for the
+      // next attempt (or the stale-running recovery) to resolve.
+      const reason =
+        step.status === "RUNNING"
+          ? "running_unresolved"
+          : step.status === "FAILED"
+          ? "already_failed"
+          : "claim_failed";
+
+      await safeRegisterAuditLog({
+        action: "WORKFLOW_EXECUTION_STEP_SKIPPED",
+        entity: "workflow_execution_step",
+        entityId: step.id,
+        actorId: processedBy,
+        metadata: {
+          workflowId: execution.workflow_id,
+          stepId: step.step_id,
+          stepOrder: step.step_order,
+          currentStatus: step.status || null,
+          reason,
+        },
+      });
+
+      const claimError = new Error(
+        `Workflow execution step ${step.id} could not be claimed (status: ${
+          step.status || "unknown"
+        })`
+      );
+      claimError.isRetryable = true;
+
+      throw claimError;
+    }
 
     try {
       const handlerResult = await workflowStepHandlers.handleWorkflowStepWithContext({
@@ -100,14 +168,18 @@ async function processWorkflowExecution({ executionId, processedBy }) {
         output: handlerResult.output,
       });
     } catch (error) {
-      await workflowExecutionStepsRepository.updateStatus({
-        id: step.id,
-        status: "FAILED",
-        completedAt: new Date(),
-        errorMessage: error.message,
-      });
-
       if (error.isRetryable === true) {
+        // Revert the claimed step back to PENDING so the BullMQ retry can
+        // re-claim only this step. FAILED is reserved for terminal/business
+        // failures; leaving a retryable failure as FAILED would make the guard
+        // skip the very step that must be retried.
+        await workflowExecutionStepsRepository.updateStatus({
+          id: step.id,
+          status: "PENDING",
+          completedAt: null,
+          errorMessage: error.message,
+        });
+
         await safeRegisterAuditLog({
           action: "WORKFLOW_EXECUTION_PROCESS_TECHNICAL_FAILURE",
           entity: "workflow_execution",
@@ -123,6 +195,15 @@ async function processWorkflowExecution({ executionId, processedBy }) {
 
         throw error;
       }
+
+      // Terminal/business failure: mark the step FAILED and finalize the
+      // execution below.
+      await workflowExecutionStepsRepository.updateStatus({
+        id: step.id,
+        status: "FAILED",
+        completedAt: new Date(),
+        errorMessage: error.message,
+      });
 
       // Finalize only while still RUNNING. If the execution was already
       // finalized concurrently (e.g. recovered as FAILED while this worker was

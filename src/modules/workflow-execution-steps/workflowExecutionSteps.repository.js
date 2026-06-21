@@ -69,6 +69,39 @@ async function findByExecutionId(executionId, db = database) {
   return result.rows;
 }
 
+// Atomically claim a step for processing. Only a PENDING step can be claimed;
+// the status guard makes this safe under BullMQ retries and concurrent actors:
+// a step already COMPLETED/RUNNING/FAILED matches no rows and returns undefined,
+// so the caller never re-runs an external side effect for an already-handled
+// step. Mirrors claimPendingExecution at the execution level.
+async function claimPendingStep({ id }, db = database) {
+  const result = await db.query(
+    `
+      UPDATE workflow_execution_steps
+      SET
+        status = 'RUNNING',
+        started_at = COALESCE(started_at, NOW()),
+        error_message = NULL,
+        updated_at = NOW()
+      WHERE id = $1
+        AND status = 'PENDING'
+      RETURNING
+        id,
+        execution_id,
+        step_id,
+        status,
+        started_at,
+        completed_at,
+        error_message,
+        created_at,
+        updated_at
+    `,
+    [id]
+  );
+
+  return result.rows[0];
+}
+
 async function updateStatus(
   { id, status, startedAt = null, completedAt = null, errorMessage = null },
   db = database
@@ -134,6 +167,7 @@ async function failRunningByExecutionId(
 module.exports = {
   createMany,
   findByExecutionId,
+  claimPendingStep,
   updateStatus,
   failRunningByExecutionId,
 };
