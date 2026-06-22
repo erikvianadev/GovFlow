@@ -79,6 +79,7 @@ test("findByExecutionId returns execution steps ordered by workflow step order",
     capturedSql,
     /workflow_steps.description as step_description.*workflow_steps.configuration.*from workflow_execution_steps inner join workflow_steps on workflow_steps.id = workflow_execution_steps.step_id where workflow_execution_steps.execution_id = \$1 order by workflow_steps.step_order asc/
   );
+  assert.match(capturedSql, /workflow_execution_steps.output/);
   assert.deepStrictEqual(capturedValues, ["execution-1"]);
 });
 
@@ -103,6 +104,7 @@ test("updateStatus updates workflow execution step lifecycle fields and clears e
   const startedAt = new Date("2026-01-01T00:00:00.000Z");
   const completedAt = new Date("2026-01-01T00:01:00.000Z");
 
+  const output = { provider: "jira", operation: "comment", commentId: "10235" };
   const updated = await repository.updateStatus(
     {
       id: "execution-step-1",
@@ -110,13 +112,14 @@ test("updateStatus updates workflow execution step lifecycle fields and clears e
       startedAt,
       completedAt,
       errorMessage: null,
+      output,
     },
     db
   );
 
   assert.match(
     capturedSql,
-    /update workflow_execution_steps set status = \$2, started_at = coalesce\(\$3, started_at\), completed_at = coalesce\(\$4, completed_at\), error_message = \$5, updated_at = now\(\) where id = \$1 returning/
+    /update workflow_execution_steps set status = \$2, started_at = coalesce\(\$3, started_at\), completed_at = coalesce\(\$4, completed_at\), error_message = \$5, output = coalesce\(\$6, output\), updated_at = now\(\) where id = \$1 returning/
   );
   assert.deepStrictEqual(capturedValues, [
     "execution-step-1",
@@ -124,9 +127,33 @@ test("updateStatus updates workflow execution step lifecycle fields and clears e
     startedAt,
     completedAt,
     null,
+    output,
   ]);
   assert.strictEqual(updated.status, "COMPLETED");
   assert.strictEqual(updated.error_message, null);
+});
+
+test("updateStatus preserves existing output when none is provided", async () => {
+  let capturedValues;
+  const db = {
+    query: async (sql, values) => {
+      capturedValues = values;
+      return { rows: [{ id: "execution-step-1", status: "PENDING" }] };
+    },
+  };
+
+  await repository.updateStatus(
+    {
+      id: "execution-step-1",
+      status: "PENDING",
+      errorMessage: "Temporary Jira failure",
+    },
+    db
+  );
+
+  // output defaults to null, and COALESCE(NULL, output) keeps the persisted
+  // value untouched on reverts/failures.
+  assert.strictEqual(capturedValues[5], null);
 });
 
 test("claimPendingStep atomically claims a PENDING step", async () => {

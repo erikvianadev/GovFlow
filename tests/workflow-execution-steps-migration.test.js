@@ -7,6 +7,10 @@ const migrationPath = path.join(
   __dirname,
   "../src/database/migrations/007_create_workflow_execution_steps.sql"
 );
+const outputMigrationPath = path.join(
+  __dirname,
+  "../src/database/migrations/008_add_output_to_workflow_execution_steps.sql"
+);
 
 function normalizeSql(sql) {
   return sql.replace(/\s+/g, " ").trim().toLowerCase();
@@ -40,4 +44,20 @@ test("007_create_workflow_execution_steps.sql defines the workflow execution ste
     normalizedSql,
     /create index if not exists idx_workflow_execution_steps_execution_status on workflow_execution_steps \(execution_id, status\);/
   );
+});
+
+test("008_add_output_to_workflow_execution_steps.sql adds a nullable JSONB output column", () => {
+  assert.ok(fs.existsSync(outputMigrationPath));
+
+  const sql = fs.readFileSync(outputMigrationPath, "utf8");
+  const normalizedSql = normalizeSql(sql);
+
+  assert.match(
+    normalizedSql,
+    /alter table workflow_execution_steps add column if not exists output jsonb;/
+  );
+  // Nullable column: no NOT NULL / no DEFAULT, to stay compatible with rows
+  // created before the column existed.
+  assert.doesNotMatch(normalizedSql, /output jsonb[^;]*not null/);
+  assert.doesNotMatch(normalizedSql, /output jsonb[^;]*default/);
 });

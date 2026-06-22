@@ -297,6 +297,20 @@ test("processWorkflowExecution processes steps in order and completes the execut
     calls.executionUpdates.at(-1).result.steps.map((step) => step.stepOrder),
     [1, 2]
   );
+  // The same enriched output (with idempotencyKey) is persisted on the step and
+  // mirrored into the aggregated execution result.
+  assert.strictEqual(
+    calls.stepUpdates[0].output.idempotencyKey,
+    "workflowExecutionStep:execution-step-1"
+  );
+  assert.strictEqual(
+    calls.executionUpdates.at(-1).result.steps[0].output.idempotencyKey,
+    "workflowExecutionStep:execution-step-1"
+  );
+  assert.deepStrictEqual(
+    calls.stepUpdates[0].output,
+    calls.executionUpdates.at(-1).result.steps[0].output
+  );
   assert.deepStrictEqual(
     calls.audit.map((entry) => entry.action),
     [
@@ -496,6 +510,13 @@ test("processWorkflowExecution skips an already COMPLETED step without re-runnin
         step_order: 1,
         action_type: "JIRA_COMMENT",
         status: "COMPLETED",
+        output: {
+          provider: "jira",
+          operation: "comment",
+          issueKey: "DO-32",
+          commentId: "10235",
+          idempotencyKey: "workflowExecutionStep:execution-step-1",
+        },
       },
       {
         id: "execution-step-2",
@@ -520,17 +541,18 @@ test("processWorkflowExecution skips an already COMPLETED step without re-runnin
   );
   assert.deepStrictEqual(calls.handlerSteps, ["execution-step-2"]);
 
-  // The skipped step is preserved in the aggregated execution result with a
-  // placeholder, keeping the step count and ordering intact.
+  // The skipped step reuses its persisted output (commentId + idempotencyKey),
+  // not a placeholder, keeping the step count and ordering intact.
   const resultSteps = calls.executionUpdates.at(-1).result.steps;
   assert.deepStrictEqual(
     resultSteps.map((step) => step.stepOrder),
     [1, 2]
   );
-  assert.deepStrictEqual(resultSteps[0].output, {
-    skipped: true,
-    reason: "already_completed",
-  });
+  assert.strictEqual(resultSteps[0].output.commentId, "10235");
+  assert.strictEqual(
+    resultSteps[0].output.idempotencyKey,
+    "workflowExecutionStep:execution-step-1"
+  );
   assert.ok(
     calls.audit.some(
       (entry) =>
@@ -538,6 +560,38 @@ test("processWorkflowExecution skips an already COMPLETED step without re-runnin
         entry.metadata.reason === "already_completed"
     )
   );
+  assert.strictEqual(result.status, "COMPLETED");
+});
+
+test("processWorkflowExecution falls back to a placeholder for a legacy COMPLETED step without persisted output", async () => {
+  const { service, calls } = loadService({
+    execution: {
+      id: validExecutionId,
+      workflow_id: "workflow-1",
+      status: "RUNNING",
+    },
+    steps: [
+      {
+        id: "execution-step-1",
+        step_id: "step-1",
+        step_order: 1,
+        action_type: "JIRA_COMMENT",
+        status: "COMPLETED",
+        // No `output`: step completed before the output column existed.
+      },
+    ],
+  });
+
+  const result = await service.processWorkflowExecution({
+    executionId: validExecutionId,
+    processedBy: validUserId,
+  });
+
+  assert.deepStrictEqual(calls.handlerSteps, []);
+  assert.deepStrictEqual(calls.executionUpdates.at(-1).result.steps[0].output, {
+    skipped: true,
+    reason: "already_completed",
+  });
   assert.strictEqual(result.status, "COMPLETED");
 });
 

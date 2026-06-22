@@ -81,8 +81,9 @@ async function processWorkflowExecution({ executionId, processedBy }) {
     if (!claimedStep) {
       // A previously COMPLETED step is the expected retry case: skip it
       // idempotently and keep it in the aggregated result so the execution
-      // result preserves step count and ordering. The placeholder output is
-      // replaced by the persisted per-step output in a later sub-block.
+      // result preserves step count and ordering. Reuse the per-step output
+      // persisted on the first run; fall back to a placeholder only for legacy
+      // steps completed before the output column existed.
       if (step.status === "COMPLETED") {
         await safeRegisterAuditLog({
           action: "WORKFLOW_EXECUTION_STEP_SKIPPED",
@@ -102,7 +103,7 @@ async function processWorkflowExecution({ executionId, processedBy }) {
           stepId: step.step_id,
           stepOrder: step.step_order,
           actionType: step.action_type,
-          output: { skipped: true, reason: "already_completed" },
+          output: step.output ?? { skipped: true, reason: "already_completed" },
         });
 
         continue;
@@ -151,12 +152,21 @@ async function processWorkflowExecution({ executionId, processedBy }) {
         execution,
       });
 
+      // Stamp the idempotency key and persist the external operation metadata on
+      // the step itself, so a future retry can observe what already happened.
+      // The exact same enriched output feeds the aggregated execution result.
+      const enrichedOutput = enrichStepOutput({
+        step,
+        output: handlerResult.output,
+      });
+
       await workflowExecutionStepsRepository.updateStatus(
         {
           id: step.id,
           status: "COMPLETED",
           completedAt: new Date(),
           errorMessage: null,
+          output: enrichedOutput,
         }
       );
 
@@ -165,7 +175,7 @@ async function processWorkflowExecution({ executionId, processedBy }) {
         stepId: step.step_id,
         stepOrder: step.step_order,
         actionType: step.action_type,
-        output: handlerResult.output,
+        output: enrichedOutput,
       });
     } catch (error) {
       if (error.isRetryable === true) {
@@ -284,6 +294,17 @@ async function processWorkflowExecution({ executionId, processedBy }) {
   });
 
   return completedExecution;
+}
+
+// Enrich a step handler's output with a deterministic idempotency key derived
+// from the workflow_execution_step id (not the workflow_steps template id). The
+// key travels with the persisted output so a later sub-block can use it to
+// detect and skip already-applied external operations.
+function enrichStepOutput({ step, output }) {
+  return {
+    ...(output || {}),
+    idempotencyKey: `workflowExecutionStep:${step.id}`,
+  };
 }
 
 // Handle the case where a finalize update matched no rows because the
