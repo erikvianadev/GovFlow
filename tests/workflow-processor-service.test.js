@@ -344,7 +344,7 @@ test("processWorkflowExecution can resume a RUNNING execution for retry", async 
   assert.strictEqual(result.status, "COMPLETED");
 });
 
-test("processWorkflowExecution returns a failed execution when a handler fails", async () => {
+test("non-retryable failure marks step and execution as failed", async () => {
   const { service, calls } = loadService({
     handlerImpl: async (step) => {
       if (step.id === "execution-step-2") {
@@ -464,7 +464,7 @@ test("processWorkflowExecution stops processing steps after the first failure", 
   assert.strictEqual(calls.executionUpdates.at(-1).result.failedStep.stepOrder, 2);
 });
 
-test("processWorkflowExecution propagates retryable technical step failures", async () => {
+test("retryable failure reverts step to pending and throws", async () => {
   const technicalError = new Error("Temporary Jira comment request failure");
   technicalError.isRetryable = true;
   const { service, calls } = loadService({
@@ -494,6 +494,116 @@ test("processWorkflowExecution propagates retryable technical step failures", as
       "WORKFLOW_EXECUTION_PROCESS_TECHNICAL_FAILURE",
     ]
   );
+});
+
+test("multi-attempt retry skips previously completed steps", async () => {
+  const technicalError = new Error("Temporary Jira transition request failure");
+  technicalError.isRetryable = true;
+
+  const stepsTemplate = () => [
+    {
+      id: "execution-step-1",
+      step_id: "step-1",
+      step_order: 1,
+      action_type: "JIRA_COMMENT",
+      status: "PENDING",
+    },
+    {
+      id: "execution-step-2",
+      step_id: "step-2",
+      step_order: 2,
+      action_type: "JIRA_TRANSITION",
+      status: "PENDING",
+    },
+  ];
+
+  // Attempt 1: step 1 completes; step 2 fails with a retryable error.
+  const attempt1 = loadService({
+    execution: {
+      id: validExecutionId,
+      workflow_id: "workflow-1",
+      status: "PENDING",
+    },
+    steps: stepsTemplate(),
+    handlerImpl: async (step) => {
+      if (step.id === "execution-step-2") {
+        throw technicalError;
+      }
+
+      return {
+        status: "COMPLETED",
+        output: { provider: "jira", operation: "comment", commentId: "10235" },
+      };
+    },
+  });
+
+  await assert.rejects(
+    attempt1.service.processWorkflowExecution({
+      executionId: validExecutionId,
+      processedBy: validUserId,
+    }),
+    (error) => error === technicalError
+  );
+
+  // Step 1 ran and completed; step 2 ran, failed, and was reverted to PENDING.
+  assert.deepStrictEqual(attempt1.calls.handlerSteps, [
+    "execution-step-1",
+    "execution-step-2",
+  ]);
+  assert.deepStrictEqual(
+    attempt1.calls.stepUpdates.map((update) => update.status),
+    ["COMPLETED", "PENDING"]
+  );
+  assert.strictEqual(attempt1.calls.executionUpdates.length, 0);
+
+  // The output persisted for step 1 on attempt 1 (enriched with idempotencyKey)
+  // is what the database would hold when attempt 2 starts.
+  const persistedStep1Output = attempt1.calls.stepUpdates[0].output;
+  assert.strictEqual(
+    persistedStep1Output.idempotencyKey,
+    "workflowExecutionStep:execution-step-1"
+  );
+
+  // Attempt 2 (BullMQ retry): execution is RUNNING, step 1 is COMPLETED with its
+  // persisted output, step 2 is back to PENDING.
+  const attempt2Steps = stepsTemplate();
+  attempt2Steps[0].status = "COMPLETED";
+  attempt2Steps[0].output = persistedStep1Output;
+
+  const attempt2 = loadService({
+    execution: {
+      id: validExecutionId,
+      workflow_id: "workflow-1",
+      status: "RUNNING",
+    },
+    steps: attempt2Steps,
+    handlerImpl: async (step) => ({
+      status: "COMPLETED",
+      output: {
+        provider: "jira",
+        operation: "transition",
+        transitionId: "31",
+      },
+    }),
+  });
+
+  const result = await attempt2.service.processWorkflowExecution({
+    executionId: validExecutionId,
+    processedBy: validUserId,
+  });
+
+  // Step 1 is NOT reprocessed (handler not called again); only step 2 runs.
+  assert.deepStrictEqual(attempt2.calls.handlerSteps, ["execution-step-2"]);
+  // Step 1's persisted output is reused verbatim in the aggregated result.
+  assert.deepStrictEqual(
+    attempt2.calls.executionUpdates.at(-1).result.steps[0].output,
+    persistedStep1Output
+  );
+  assert.deepStrictEqual(
+    attempt2.calls.stepUpdates.map((update) => update.status),
+    ["COMPLETED"]
+  );
+  assert.strictEqual(result.status, "COMPLETED");
 });
 
 test("processWorkflowExecution skips an already COMPLETED step without re-running its handler", async () => {
