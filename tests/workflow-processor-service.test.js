@@ -595,6 +595,103 @@ test("processWorkflowExecution falls back to a placeholder for a legacy COMPLETE
   assert.strictEqual(result.status, "COMPLETED");
 });
 
+test("processWorkflowExecution deduplicates a claimed JIRA_COMMENT step that already has a persisted commentId", async () => {
+  const persistedOutput = {
+    provider: "jira",
+    operation: "comment",
+    issueKey: "DO-32",
+    commentId: "10235",
+    idempotencyKey: "workflowExecutionStep:execution-step-1",
+  };
+  const { service, calls } = loadService({
+    execution: {
+      id: validExecutionId,
+      workflow_id: "workflow-1",
+      status: "RUNNING",
+    },
+    steps: [
+      {
+        id: "execution-step-1",
+        step_id: "step-1",
+        step_order: 1,
+        action_type: "JIRA_COMMENT",
+        // Claimable snapshot, but output proves the comment was already created.
+        status: "PENDING",
+        output: persistedOutput,
+      },
+    ],
+  });
+
+  const result = await service.processWorkflowExecution({
+    executionId: validExecutionId,
+    processedBy: validUserId,
+  });
+
+  // The step is claimed, but the handler (and therefore Jira) is never called.
+  assert.deepStrictEqual(
+    calls.stepClaims.map((claim) => claim.id),
+    ["execution-step-1"]
+  );
+  assert.deepStrictEqual(calls.handlerSteps, []);
+
+  // The persisted output is reused, both on the step and in the aggregated result.
+  assert.strictEqual(calls.stepUpdates.at(-1).status, "COMPLETED");
+  assert.deepStrictEqual(calls.stepUpdates.at(-1).output, persistedOutput);
+  assert.deepStrictEqual(
+    calls.executionUpdates.at(-1).result.steps[0].output,
+    persistedOutput
+  );
+  assert.ok(
+    calls.audit.some(
+      (entry) =>
+        entry.action === "WORKFLOW_EXECUTION_STEP_SKIPPED" &&
+        entry.metadata.reason === "comment_already_created"
+    )
+  );
+  assert.strictEqual(result.status, "COMPLETED");
+});
+
+test("processWorkflowExecution does not dedup-skip a claimed step whose output is not a Jira comment", async () => {
+  const { service, calls } = loadService({
+    execution: {
+      id: validExecutionId,
+      workflow_id: "workflow-1",
+      status: "RUNNING",
+    },
+    steps: [
+      {
+        id: "execution-step-1",
+        step_id: "step-1",
+        step_order: 1,
+        action_type: "JIRA_TRANSITION",
+        status: "PENDING",
+        // A transition output (no commentId) must not trigger the comment dedup.
+        output: {
+          provider: "jira",
+          operation: "transition",
+          transitionId: "31",
+        },
+      },
+    ],
+  });
+
+  const result = await service.processWorkflowExecution({
+    executionId: validExecutionId,
+    processedBy: validUserId,
+  });
+
+  // The dedup guard is comment-specific: the handler still runs normally.
+  assert.deepStrictEqual(calls.handlerSteps, ["execution-step-1"]);
+  assert.ok(
+    !calls.audit.some(
+      (entry) =>
+        entry.action === "WORKFLOW_EXECUTION_STEP_SKIPPED" &&
+        entry.metadata.reason === "comment_already_created"
+    )
+  );
+  assert.strictEqual(result.status, "COMPLETED");
+});
+
 test("processWorkflowExecution raises a retryable error for a non-claimable RUNNING step", async () => {
   const { service, calls } = loadService({
     execution: {

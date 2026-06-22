@@ -146,6 +146,45 @@ async function processWorkflowExecution({ executionId, processedBy }) {
       throw claimError;
     }
 
+    // Local, persisted-output dedup (defense in depth): if the claimed step
+    // already carries output proving its Jira comment was created, do not call
+    // the handler (and therefore never call Jira again); reuse the persisted
+    // output instead. This is purely local dedup based on persisted output: it
+    // does NOT cover a hard crash between the Jira 201 and persisting the
+    // output, which remains a known residual risk for a future phase.
+    if (isJiraCommentAlreadyCreated(step.output)) {
+      await safeRegisterAuditLog({
+        action: "WORKFLOW_EXECUTION_STEP_SKIPPED",
+        entity: "workflow_execution_step",
+        entityId: step.id,
+        actorId: processedBy,
+        metadata: {
+          workflowId: execution.workflow_id,
+          stepId: step.step_id,
+          stepOrder: step.step_order,
+          reason: "comment_already_created",
+        },
+      });
+
+      await workflowExecutionStepsRepository.updateStatus({
+        id: step.id,
+        status: "COMPLETED",
+        completedAt: new Date(),
+        errorMessage: null,
+        output: step.output,
+      });
+
+      stepOutputs.push({
+        executionStepId: step.id,
+        stepId: step.step_id,
+        stepOrder: step.step_order,
+        actionType: step.action_type,
+        output: step.output,
+      });
+
+      continue;
+    }
+
     try {
       const handlerResult = await workflowStepHandlers.handleWorkflowStepWithContext({
         step,
@@ -305,6 +344,18 @@ function enrichStepOutput({ step, output }) {
     ...(output || {}),
     idempotencyKey: `workflowExecutionStep:${step.id}`,
   };
+}
+
+// Detect, from a step's persisted output, that its Jira comment was already
+// created on a previous run. The commentId is the strong signal: its presence
+// means the external side effect happened, so we must not create it again.
+function isJiraCommentAlreadyCreated(output) {
+  return Boolean(
+    output &&
+      output.provider === "jira" &&
+      output.operation === "comment" &&
+      output.commentId
+  );
 }
 
 // Handle the case where a finalize update matched no rows because the
