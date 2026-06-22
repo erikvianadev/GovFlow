@@ -7,11 +7,12 @@ integrations such as Jira.
 
 ## Current Status
 
-Sprint 5 - Asynchronous Workflow Processing Foundation completed.
+Sprint 6.4.2 - Jira Idempotency & Step-Level Concurrency completed.
 
-GovFlow now processes workflow executions asynchronously: the API enqueues a
-BullMQ job, Redis stores the queue state, and a dedicated worker runs the
-workflow processor in the background.
+GovFlow processes workflow executions asynchronously and integrates with the
+real Jira Cloud REST API for `JIRA_COMMENT` and `JIRA_TRANSITION` steps. Recent
+sprints added security hardening (6.4.1) and step-level idempotency to avoid
+duplicate external Jira side effects under retries and concurrency (6.4.2).
 
 The current backend includes:
 
@@ -23,28 +24,34 @@ The current backend includes:
 - Dockerized API, worker, database, and Redis
 - Environment variables with required-variable validation
 - Database connection pool
-- Health check endpoint (PostgreSQL + Redis, with degraded reporting)
-- Global error handling
+- Public health check endpoint with safe degraded reporting
+- Admin-only deep health check for dependency status
+- Global error handling (environment-aware responses)
 - Standardized API responses
 - Request logging middleware
 - SQL migrations and seeds
 - Audit logs module
 - Departments module
 - Users module
-- Password hashing with bcrypt
-- Login endpoint
-- JWT access token generation
+- Password hashing with bcrypt and password policy
+- Login endpoint (account-enumeration-safe) with per-IP rate limiting
+- JWT access token generation with hardened claims
 - Authentication middleware
 - Role-based authorization middleware
+- Object-level (department-scoped) authorization for executions
 - Protected routes
-- Helmet security headers, CORS allowlist, and login rate limiting
+- Helmet security headers, CORS allowlist, and trust-proxy-aware rate limiting
 - Workflows module
 - Workflow steps module
 - Workflow executions module
 - Workflow execution steps module
+- Real Jira integration (connection test, JIRA_COMMENT, JIRA_TRANSITION)
 - Transaction support for multi-step database operations
 - Asynchronous workflow processor (queued via BullMQ, run by the worker)
-- Atomic PENDING -> RUNNING claim to prevent duplicate processing
+- Atomic PENDING -> RUNNING claim at the execution and step level
+- Retryable step failures revert the step to PENDING (only the failed step retries)
+- Per-step external operation output (JSONB) with a deterministic idempotencyKey
+- Local deduplication of JIRA_COMMENT and JIRA_TRANSITION on retry
 - Guarded terminal transitions to prevent lost updates
 - Job status observability endpoint
 - Retry strategy with exponential backoff
@@ -71,6 +78,7 @@ The current backend includes:
 - JSON Web Token
 - Helmet
 - express-rate-limit
+- axios (Jira HTTP client)
 
 ## Project Structure
 
@@ -90,6 +98,7 @@ src/
     auth/
     departments/
     health/
+    jira/
     users/
     workflows/
     workflow-steps/
@@ -139,12 +148,25 @@ LOGIN_RATE_LIMIT_WINDOW_MS=900000
 LOGIN_RATE_LIMIT_MAX=10
 
 WORKFLOW_EXECUTION_RUNNING_TIMEOUT_MINUTES=30
+
+JIRA_RATE_LIMIT_WINDOW_MS=900000
+JIRA_RATE_LIMIT_MAX=30
+
+JIRA_ENABLED=false
+JIRA_BASE_URL=https://your-domain.atlassian.net
+JIRA_EMAIL=your_email@example.com
+JIRA_API_TOKEN=your_jira_api_token
+JIRA_TIMEOUT_MS=10000
 ```
 
 `JWT_SECRET` and the database variables are required at boot; the process fails
 fast if they are missing. `JWT_SECRET` must be a long, private value in
 production. When running with Docker Compose, the API and worker containers use
 `DB_HOST=postgres` and `REDIS_HOST=redis`.
+
+Jira is disabled by default (`JIRA_ENABLED=false`). When enabled, `JIRA_BASE_URL`,
+`JIRA_EMAIL`, and `JIRA_API_TOKEN` are required for Jira steps and the connection
+test.
 
 ## Running With Docker
 
@@ -208,6 +230,7 @@ Current migrations:
 005_create_workflow_steps.sql
 006_create_workflow_executions.sql
 007_create_workflow_execution_steps.sql
+008_add_output_to_workflow_execution_steps.sql
 ```
 
 ## Domain Model
@@ -234,7 +257,8 @@ the execution and step records as `COMPLETED` or `FAILED`.
 
 ## Workflow Processing
 
-GovFlow now includes asynchronous workflow processing.
+GovFlow processes workflow executions asynchronously and integrates with the
+real Jira Cloud API.
 
 Current processing flow:
 
@@ -246,22 +270,39 @@ Workflow execution created
   -> Worker consumes the job from Redis
   -> Processor marks execution as RUNNING
   -> Processor processes execution steps in step_order ASC
-  -> Each step moves from PENDING to RUNNING
-  -> Each successful step moves to COMPLETED
+  -> Each step is atomically claimed (PENDING -> RUNNING)
+  -> The step handler runs (MANUAL/NOTIFICATION simulated; JIRA_* call Jira)
+  -> Each successful step moves to COMPLETED and persists its output
   -> Execution moves to COMPLETED when all steps succeed
 ```
 
-Failure flow:
+Step handlers:
 
-```txt
-Execution RUNNING
-  -> Step RUNNING
-  -> Step FAILED
-  -> Execution FAILED
-```
+| Action Type | Behavior |
+| --- | --- |
+| MANUAL | Simulated completion |
+| NOTIFICATION | Simulated completion |
+| JIRA_TRANSITION | Executes a real Jira issue transition |
+| JIRA_COMMENT | Creates a real Jira issue comment |
 
-The processor is currently simulated. It does not call Jira, email services,
-webhooks, or external systems yet.
+The architecture rule is preserved: the worker does not know Jira; the processor
+calls a handler; the handler calls the Jira integration service; the service
+calls the Jira API.
+
+Idempotency and retries:
+
+- Steps are claimed atomically, so a retry never re-runs an already COMPLETED step.
+- A retryable (technical) step failure reverts the step to PENDING so the retry
+  re-claims only the failed step.
+- Each step persists its external operation output (JSONB) with a deterministic
+  `idempotencyKey` (`workflowExecutionStep:<stepId>`).
+- If a step's persisted output proves its Jira comment/transition already
+  happened, the handler (and Jira) is not called again.
+
+This is local idempotency based on persisted output, not an absolute delivery
+guarantee against Jira. See
+[`docs/jira-idempotency.md`](docs/jira-idempotency.md) for the full design,
+step lifecycle, audit reasons, and known residual risks.
 
 Retry strategy:
 
@@ -349,6 +390,8 @@ Protected routes use role-based access control.
 | `GET /workflow-executions/:id/job` | ADMIN, MANAGER |
 | `GET /workflow-executions/:executionId/steps` | ADMIN, MANAGER |
 | `POST /workflow-executions/:id/process` | ADMIN, MANAGER |
+| `GET /health/deep` | ADMIN |
+| `GET /jira/test-connection` | ADMIN |
 
 ## Authentication
 
@@ -425,7 +468,7 @@ The application records system and business events in `audit_logs`.
 Current automatic events include:
 
 ```txt
-HEALTH_CHECK_EXECUTED
+HEALTH_CHECK_DEEP_EXECUTED
 LOGIN_SUCCESS
 LOGIN_FAILED
 DEPARTMENT_CREATED
@@ -436,13 +479,28 @@ WORKFLOW_EXECUTION_CREATED
 WORKFLOW_EXECUTION_PROCESS_STARTED
 WORKFLOW_EXECUTION_PROCESS_COMPLETED
 WORKFLOW_EXECUTION_PROCESS_FAILED
+WORKFLOW_EXECUTION_PROCESS_TECHNICAL_FAILURE
 WORKFLOW_EXECUTION_PROCESS_SKIPPED
+WORKFLOW_EXECUTION_STEP_SKIPPED
 WORKFLOW_EXECUTION_RECOVERY_FAILED
+JIRA_COMMENT_ATTEMPTED
+JIRA_COMMENT_COMPLETED
+JIRA_COMMENT_FAILED
+JIRA_TRANSITION_ATTEMPTED
+JIRA_TRANSITION_COMPLETED
+JIRA_TRANSITION_FAILED
 ```
+
+`HEALTH_CHECK_DEEP_EXECUTED` is recorded by the admin-only deep health check; the
+public `/health` endpoint does not write an audit log per request.
 
 `WORKFLOW_EXECUTION_PROCESS_SKIPPED` is recorded when the worker finishes an
 execution that was already finalized concurrently (for example, recovered as
 `FAILED`), so it reports the existing terminal state instead of overwriting it.
+
+`WORKFLOW_EXECUTION_STEP_SKIPPED` is recorded when a step is skipped idempotently
+(already completed, comment already created, transition already applied) or
+cannot be safely re-claimed; the `reason` in the metadata carries the detail.
 
 ## Testing
 
@@ -460,9 +518,11 @@ docker exec govflow_api npm test
 
 Automated coverage includes migration contracts, validators, repository helpers,
 route registration and ordering, execution step listing, asynchronous workflow
-processing, simulated handlers, failure handling, retry/queue payload behavior,
-job status observability, stale RUNNING execution recovery, and the guarded
-finalization that protects against recovery/worker lost updates.
+processing, real Jira comment/transition handlers, failure handling,
+retry/queue payload behavior, job status observability, stale RUNNING execution
+recovery, the guarded finalization that protects against recovery/worker lost
+updates, atomic step claiming, per-step output persistence, JIRA_COMMENT and
+JIRA_TRANSITION deduplication, and an end-to-end multi-attempt retry scenario.
 
 ## Useful Commands
 
@@ -482,15 +542,17 @@ docker exec govflow_api npm test
 
 ## Next Steps
 
-Sprint 5 delivered the asynchronous processing foundation (Redis, BullMQ, a
-dedicated worker, retries, job observability, and stale RUNNING recovery). The
-next major evolution is external integration.
+Sprint 6.4.2 delivered step-level idempotency and local deduplication of Jira
+side effects on top of the real Jira integration and security hardening of the
+prior sprints.
 
 Planned next improvements:
 
-- Jira integration (transitions and comments)
-- Real workflow step handlers replacing the simulated ones
-- External API timeout handling
-- Worker metrics and a queue dashboard/admin tooling
+- Remote-Assisted Jira Deduplication: persistence closer to the Jira call and
+  optional remote dedup/verification (lookup comments by idempotencyKey; check
+  current issue status/transitions to tell "already applied" from a real failure)
+- Observability of skips by audit reason and worker/queue metrics
+- Queue dashboard / admin tooling
 - Automatic scheduled recovery for stale RUNNING executions
+- External API timeout tuning and circuit-breaking
 - Optional removal of the temporary `/enqueue` alias
