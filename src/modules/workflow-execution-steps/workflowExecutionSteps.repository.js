@@ -55,6 +55,7 @@ async function findByExecutionId(executionId, db = database) {
         workflow_execution_steps.started_at,
         workflow_execution_steps.completed_at,
         workflow_execution_steps.error_message,
+        workflow_execution_steps.output,
         workflow_execution_steps.created_at,
         workflow_execution_steps.updated_at
       FROM workflow_execution_steps
@@ -69,8 +70,49 @@ async function findByExecutionId(executionId, db = database) {
   return result.rows;
 }
 
+// Atomically claim a step for processing. Only a PENDING step can be claimed;
+// the status guard makes this safe under BullMQ retries and concurrent actors:
+// a step already COMPLETED/RUNNING/FAILED matches no rows and returns undefined,
+// so the caller never re-runs an external side effect for an already-handled
+// step. Mirrors claimPendingExecution at the execution level.
+async function claimPendingStep({ id }, db = database) {
+  const result = await db.query(
+    `
+      UPDATE workflow_execution_steps
+      SET
+        status = 'RUNNING',
+        started_at = COALESCE(started_at, NOW()),
+        error_message = NULL,
+        updated_at = NOW()
+      WHERE id = $1
+        AND status = 'PENDING'
+      RETURNING
+        id,
+        execution_id,
+        step_id,
+        status,
+        started_at,
+        completed_at,
+        error_message,
+        output,
+        created_at,
+        updated_at
+    `,
+    [id]
+  );
+
+  return result.rows[0];
+}
+
 async function updateStatus(
-  { id, status, startedAt = null, completedAt = null, errorMessage = null },
+  {
+    id,
+    status,
+    startedAt = null,
+    completedAt = null,
+    errorMessage = null,
+    output = null,
+  },
   db = database
 ) {
   const result = await db.query(
@@ -81,6 +123,7 @@ async function updateStatus(
         started_at = COALESCE($3, started_at),
         completed_at = COALESCE($4, completed_at),
         error_message = $5,
+        output = COALESCE($6, output),
         updated_at = NOW()
       WHERE id = $1
       RETURNING
@@ -91,10 +134,11 @@ async function updateStatus(
         started_at,
         completed_at,
         error_message,
+        output,
         created_at,
         updated_at
     `,
-    [id, status, startedAt, completedAt, errorMessage]
+    [id, status, startedAt, completedAt, errorMessage, output]
   );
 
   return result.rows[0];
@@ -134,6 +178,7 @@ async function failRunningByExecutionId(
 module.exports = {
   createMany,
   findByExecutionId,
+  claimPendingStep,
   updateStatus,
   failRunningByExecutionId,
 };

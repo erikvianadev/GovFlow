@@ -70,17 +70,136 @@ async function processWorkflowExecution({ executionId, processedBy }) {
   const stepOutputs = [];
 
   for (const step of steps) {
-    await workflowExecutionStepsRepository.updateStatus({
+    // Atomically claim the step (PENDING -> RUNNING). A claim that matches no
+    // rows means the step is no longer PENDING, so we must not re-run its
+    // handler (and therefore never duplicate an external Jira side effect on a
+    // BullMQ retry). How we react depends on the step's current state.
+    const claimedStep = await workflowExecutionStepsRepository.claimPendingStep({
       id: step.id,
-      status: "RUNNING",
-      startedAt: new Date(),
-      errorMessage: null,
     });
+
+    if (!claimedStep) {
+      // A previously COMPLETED step is the expected retry case: skip it
+      // idempotently and keep it in the aggregated result so the execution
+      // result preserves step count and ordering. Reuse the per-step output
+      // persisted on the first run; fall back to a placeholder only for legacy
+      // steps completed before the output column existed.
+      if (step.status === "COMPLETED") {
+        await safeRegisterAuditLog({
+          action: "WORKFLOW_EXECUTION_STEP_SKIPPED",
+          entity: "workflow_execution_step",
+          entityId: step.id,
+          actorId: processedBy,
+          metadata: {
+            workflowId: execution.workflow_id,
+            stepId: step.step_id,
+            stepOrder: step.step_order,
+            reason: "already_completed",
+          },
+        });
+
+        stepOutputs.push({
+          executionStepId: step.id,
+          stepId: step.step_id,
+          stepOrder: step.step_order,
+          actionType: step.action_type,
+          output: step.output ?? { skipped: true, reason: "already_completed" },
+        });
+
+        continue;
+      }
+
+      // Any other non-claimable state (RUNNING left by a crashed attempt, a
+      // terminal FAILED, or a PENDING snapshot lost to a concurrent claim) is
+      // unresolvable here: we cannot confirm completion, so we must not call
+      // the handler nor finalize the execution as COMPLETED. Raise a controlled
+      // retryable error so BullMQ retries; the step is left untouched for the
+      // next attempt (or the stale-running recovery) to resolve.
+      const reason =
+        step.status === "RUNNING"
+          ? "running_unresolved"
+          : step.status === "FAILED"
+          ? "already_failed"
+          : "claim_failed";
+
+      await safeRegisterAuditLog({
+        action: "WORKFLOW_EXECUTION_STEP_SKIPPED",
+        entity: "workflow_execution_step",
+        entityId: step.id,
+        actorId: processedBy,
+        metadata: {
+          workflowId: execution.workflow_id,
+          stepId: step.step_id,
+          stepOrder: step.step_order,
+          currentStatus: step.status || null,
+          reason,
+        },
+      });
+
+      const claimError = new Error(
+        `Workflow execution step ${step.id} could not be claimed (status: ${
+          step.status || "unknown"
+        })`
+      );
+      claimError.isRetryable = true;
+
+      throw claimError;
+    }
+
+    // Local, persisted-output dedup (defense in depth): if the claimed step
+    // already carries output proving its Jira operation was applied (a created
+    // comment or an applied transition), do not call the handler (and therefore
+    // never call Jira again); reuse the persisted output instead. This is purely
+    // local dedup based on persisted output: it does NOT cover a hard crash
+    // between the Jira response and persisting the output, which remains a known
+    // residual risk for a future phase.
+    const dedupReason = getExternalOperationDedupReason(step.output);
+
+    if (dedupReason) {
+      await safeRegisterAuditLog({
+        action: "WORKFLOW_EXECUTION_STEP_SKIPPED",
+        entity: "workflow_execution_step",
+        entityId: step.id,
+        actorId: processedBy,
+        metadata: {
+          workflowId: execution.workflow_id,
+          stepId: step.step_id,
+          stepOrder: step.step_order,
+          reason: dedupReason,
+        },
+      });
+
+      await workflowExecutionStepsRepository.updateStatus({
+        id: step.id,
+        status: "COMPLETED",
+        completedAt: new Date(),
+        errorMessage: null,
+        output: step.output,
+      });
+
+      stepOutputs.push({
+        executionStepId: step.id,
+        stepId: step.step_id,
+        stepOrder: step.step_order,
+        actionType: step.action_type,
+        output: step.output,
+      });
+
+      continue;
+    }
 
     try {
       const handlerResult = await workflowStepHandlers.handleWorkflowStepWithContext({
         step,
         execution,
+      });
+
+      // Stamp the idempotency key and persist the external operation metadata on
+      // the step itself, so a future retry can observe what already happened.
+      // The exact same enriched output feeds the aggregated execution result.
+      const enrichedOutput = enrichStepOutput({
+        step,
+        output: handlerResult.output,
       });
 
       await workflowExecutionStepsRepository.updateStatus(
@@ -89,6 +208,7 @@ async function processWorkflowExecution({ executionId, processedBy }) {
           status: "COMPLETED",
           completedAt: new Date(),
           errorMessage: null,
+          output: enrichedOutput,
         }
       );
 
@@ -97,17 +217,21 @@ async function processWorkflowExecution({ executionId, processedBy }) {
         stepId: step.step_id,
         stepOrder: step.step_order,
         actionType: step.action_type,
-        output: handlerResult.output,
+        output: enrichedOutput,
       });
     } catch (error) {
-      await workflowExecutionStepsRepository.updateStatus({
-        id: step.id,
-        status: "FAILED",
-        completedAt: new Date(),
-        errorMessage: error.message,
-      });
-
       if (error.isRetryable === true) {
+        // Revert the claimed step back to PENDING so the BullMQ retry can
+        // re-claim only this step. FAILED is reserved for terminal/business
+        // failures; leaving a retryable failure as FAILED would make the guard
+        // skip the very step that must be retried.
+        await workflowExecutionStepsRepository.updateStatus({
+          id: step.id,
+          status: "PENDING",
+          completedAt: null,
+          errorMessage: error.message,
+        });
+
         await safeRegisterAuditLog({
           action: "WORKFLOW_EXECUTION_PROCESS_TECHNICAL_FAILURE",
           entity: "workflow_execution",
@@ -123,6 +247,15 @@ async function processWorkflowExecution({ executionId, processedBy }) {
 
         throw error;
       }
+
+      // Terminal/business failure: mark the step FAILED and finalize the
+      // execution below.
+      await workflowExecutionStepsRepository.updateStatus({
+        id: step.id,
+        status: "FAILED",
+        completedAt: new Date(),
+        errorMessage: error.message,
+      });
 
       // Finalize only while still RUNNING. If the execution was already
       // finalized concurrently (e.g. recovered as FAILED while this worker was
@@ -203,6 +336,40 @@ async function processWorkflowExecution({ executionId, processedBy }) {
   });
 
   return completedExecution;
+}
+
+// Enrich a step handler's output with a deterministic idempotency key derived
+// from the workflow_execution_step id (not the workflow_steps template id). The
+// key travels with the persisted output so a later sub-block can use it to
+// detect and skip already-applied external operations.
+function enrichStepOutput({ step, output }) {
+  return {
+    ...(output || {}),
+    idempotencyKey: `workflowExecutionStep:${step.id}`,
+  };
+}
+
+// Inspect a step's persisted output to decide whether its external operation
+// was already applied on a previous run, returning the audit reason for the
+// matching operation (or null). The strong signal is the external id
+// (commentId / transitionId): its presence means the side effect happened, so
+// we must not run the handler (and therefore the Jira call) again. This is
+// purely local dedup based on persisted output; it does NOT cover a hard crash
+// between the Jira response and persisting the output (known residual risk).
+function getExternalOperationDedupReason(output) {
+  if (output?.provider === "jira" && output?.operation === "comment" && output?.commentId) {
+    return "comment_already_created";
+  }
+
+  if (
+    output?.provider === "jira" &&
+    output?.operation === "transition" &&
+    output?.transitionId
+  ) {
+    return "transition_already_applied";
+  }
+
+  return null;
 }
 
 // Handle the case where a finalize update matched no rows because the

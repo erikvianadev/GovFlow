@@ -492,6 +492,17 @@ If any operation fails:
 ROLLBACK
 ```
 
+## Step-Level Idempotency
+
+Workflow steps are claimed atomically (`PENDING -> RUNNING`), retryable failures
+revert a step to `PENDING`, and each step persists its external operation output
+(with an `idempotencyKey`) so retries skip already-completed steps and do not
+duplicate `JIRA_COMMENT` or `JIRA_TRANSITION` side effects.
+
+See [Jira Idempotency & Step-Level Concurrency](./jira-idempotency.md) for the
+full design, step lifecycle, persisted output format, audit reasons, and known
+residual risks.
+
 This prevents orphaned workflow executions without execution steps.
 
 The workflow processor does not use one long transaction for the entire
