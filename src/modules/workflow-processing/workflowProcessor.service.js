@@ -109,18 +109,65 @@ async function processWorkflowExecution({ executionId, processedBy }) {
         continue;
       }
 
-      // Any other non-claimable state (RUNNING left by a crashed attempt, a
-      // terminal FAILED, or a PENDING snapshot lost to a concurrent claim) is
-      // unresolvable here: we cannot confirm completion, so we must not call
-      // the handler nor finalize the execution as COMPLETED. Raise a controlled
-      // retryable error so BullMQ retries; the step is left untouched for the
-      // next attempt (or the stale-running recovery) to resolve.
+      // A previously FAILED step is a terminal/business failure already recorded
+      // on an earlier attempt. Do not re-run the handler or throw a retryable
+      // error (which would burn BullMQ attempts and leave the execution RUNNING
+      // until stale recovery). Finalize the execution as FAILED right away,
+      // reusing the same guarded finalize as a fresh business failure.
+      if (step.status === "FAILED") {
+        const failedStepError =
+          step.error_message || "Workflow execution step already failed";
+
+        const failedExecution =
+          await workflowExecutionsRepository.finalizeRunningExecution({
+            id: executionId,
+            status: "FAILED",
+            result: {
+              processedBy,
+              stepsProcessed: stepOutputs.length,
+              failedStep: {
+                executionStepId: step.id,
+                stepId: step.step_id,
+                stepOrder: step.step_order,
+                actionType: step.action_type,
+                error: failedStepError,
+              },
+              steps: stepOutputs,
+            },
+          });
+
+        if (!failedExecution) {
+          return finalizeConcurrentlyClaimedExecution({
+            executionId,
+            workflowId: execution.workflow_id,
+            processedBy,
+          });
+        }
+
+        await safeRegisterAuditLog({
+          action: "WORKFLOW_EXECUTION_PROCESS_FAILED",
+          entity: "workflow_execution",
+          entityId: executionId,
+          actorId: processedBy,
+          metadata: {
+            workflowId: execution.workflow_id,
+            failedStepId: step.step_id,
+            failedStepOrder: step.step_order,
+            error: failedStepError,
+          },
+        });
+
+        return failedExecution;
+      }
+
+      // Any other non-claimable state (RUNNING left by a crashed attempt, or a
+      // PENDING snapshot lost to a concurrent claim) is unresolvable here: we
+      // cannot confirm completion, so we must not call the handler nor finalize
+      // the execution as COMPLETED. Raise a controlled retryable error so BullMQ
+      // retries; the step is left untouched for the next attempt (or the
+      // stale-running recovery) to resolve.
       const reason =
-        step.status === "RUNNING"
-          ? "running_unresolved"
-          : step.status === "FAILED"
-          ? "already_failed"
-          : "claim_failed";
+        step.status === "RUNNING" ? "running_unresolved" : "claim_failed";
 
       await safeRegisterAuditLog({
         action: "WORKFLOW_EXECUTION_STEP_SKIPPED",

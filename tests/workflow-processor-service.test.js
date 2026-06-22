@@ -931,3 +931,86 @@ test("processWorkflowExecution raises a retryable error when a PENDING step lose
     )
   );
 });
+
+test("previously failed step finalizes the execution as failed without retry", async () => {
+  const { service, calls } = loadService({
+    execution: {
+      id: validExecutionId,
+      workflow_id: "workflow-1",
+      status: "RUNNING",
+    },
+    steps: [
+      {
+        id: "execution-step-1",
+        step_id: "step-1",
+        step_order: 1,
+        action_type: "JIRA_TRANSITION",
+        // Terminal/business failure already recorded on an earlier attempt.
+        status: "FAILED",
+        error_message: "Jira rejected transition request with status 400",
+      },
+    ],
+  });
+
+  const result = await service.processWorkflowExecution({
+    executionId: validExecutionId,
+    processedBy: validUserId,
+  });
+
+  // No handler call and the step is not mutated: the failure is already known.
+  assert.deepStrictEqual(calls.handlerSteps, []);
+  assert.strictEqual(calls.stepUpdates.length, 0);
+
+  // The execution is finalized as FAILED, reusing the persisted step error.
+  assert.strictEqual(calls.executionUpdates.length, 1);
+  assert.strictEqual(calls.executionUpdates[0].status, "FAILED");
+  assert.strictEqual(
+    calls.executionUpdates[0].result.failedStep.error,
+    "Jira rejected transition request with status 400"
+  );
+  assert.strictEqual(result.status, "FAILED");
+
+  // It does not throw a retryable error, and it audits the terminal failure.
+  assert.ok(
+    calls.audit.some(
+      (entry) => entry.action === "WORKFLOW_EXECUTION_PROCESS_FAILED"
+    )
+  );
+});
+
+test("previously failed step respects an execution finalized concurrently", async () => {
+  const { service, calls } = loadService({
+    execution: {
+      id: validExecutionId,
+      workflow_id: "workflow-1",
+      status: "RUNNING",
+    },
+    steps: [
+      {
+        id: "execution-step-1",
+        step_id: "step-1",
+        step_order: 1,
+        action_type: "JIRA_TRANSITION",
+        status: "FAILED",
+        error_message: "Jira rejected transition request with status 400",
+      },
+    ],
+    // The guarded finalize matches no rows (already finalized concurrently).
+    concurrentlyFinalized: true,
+  });
+
+  const result = await service.processWorkflowExecution({
+    executionId: validExecutionId,
+    processedBy: validUserId,
+  });
+
+  assert.deepStrictEqual(calls.handlerSteps, []);
+  assert.strictEqual(calls.stepUpdates.length, 0);
+  // It surfaces the existing terminal state instead of overwriting it.
+  assert.strictEqual(result.status, "FAILED");
+  assert.ok(
+    calls.audit.some(
+      (entry) => entry.action === "WORKFLOW_EXECUTION_PROCESS_SKIPPED"
+    )
+  );
+});
