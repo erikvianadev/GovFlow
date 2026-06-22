@@ -147,12 +147,15 @@ async function processWorkflowExecution({ executionId, processedBy }) {
     }
 
     // Local, persisted-output dedup (defense in depth): if the claimed step
-    // already carries output proving its Jira comment was created, do not call
-    // the handler (and therefore never call Jira again); reuse the persisted
-    // output instead. This is purely local dedup based on persisted output: it
-    // does NOT cover a hard crash between the Jira 201 and persisting the
-    // output, which remains a known residual risk for a future phase.
-    if (isJiraCommentAlreadyCreated(step.output)) {
+    // already carries output proving its Jira operation was applied (a created
+    // comment or an applied transition), do not call the handler (and therefore
+    // never call Jira again); reuse the persisted output instead. This is purely
+    // local dedup based on persisted output: it does NOT cover a hard crash
+    // between the Jira response and persisting the output, which remains a known
+    // residual risk for a future phase.
+    const dedupReason = getExternalOperationDedupReason(step.output);
+
+    if (dedupReason) {
       await safeRegisterAuditLog({
         action: "WORKFLOW_EXECUTION_STEP_SKIPPED",
         entity: "workflow_execution_step",
@@ -162,7 +165,7 @@ async function processWorkflowExecution({ executionId, processedBy }) {
           workflowId: execution.workflow_id,
           stepId: step.step_id,
           stepOrder: step.step_order,
-          reason: "comment_already_created",
+          reason: dedupReason,
         },
       });
 
@@ -346,16 +349,27 @@ function enrichStepOutput({ step, output }) {
   };
 }
 
-// Detect, from a step's persisted output, that its Jira comment was already
-// created on a previous run. The commentId is the strong signal: its presence
-// means the external side effect happened, so we must not create it again.
-function isJiraCommentAlreadyCreated(output) {
-  return Boolean(
-    output &&
-      output.provider === "jira" &&
-      output.operation === "comment" &&
-      output.commentId
-  );
+// Inspect a step's persisted output to decide whether its external operation
+// was already applied on a previous run, returning the audit reason for the
+// matching operation (or null). The strong signal is the external id
+// (commentId / transitionId): its presence means the side effect happened, so
+// we must not run the handler (and therefore the Jira call) again. This is
+// purely local dedup based on persisted output; it does NOT cover a hard crash
+// between the Jira response and persisting the output (known residual risk).
+function getExternalOperationDedupReason(output) {
+  if (output?.provider === "jira" && output?.operation === "comment" && output?.commentId) {
+    return "comment_already_created";
+  }
+
+  if (
+    output?.provider === "jira" &&
+    output?.operation === "transition" &&
+    output?.transitionId
+  ) {
+    return "transition_already_applied";
+  }
+
+  return null;
 }
 
 // Handle the case where a finalize update matched no rows because the
