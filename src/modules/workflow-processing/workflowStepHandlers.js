@@ -70,7 +70,7 @@ function buildGovFlowJiraComment({ comment, executionId, executionStepId }) {
   return [
     comment.trim(),
     "",
-    "GovFlow executionStepId: " + executionStepId,
+    jiraService.buildExecutionStepMarker(executionStepId),
     "GovFlow executionId: " + executionId,
   ].join("\n");
 }

@@ -329,13 +329,31 @@ Recovery flow:
 
 ```txt
 RUNNING execution older than timeout
+  -> (read-only, before the transaction) For each RUNNING JIRA_COMMENT step,
+     ask Jira whether a comment carrying that step's marker already exists
   -> Mark RUNNING execution steps as FAILED
+  -> Correct any remotely-confirmed JIRA_COMMENT step back to COMPLETED
+     (with recoveredViaRemoteLookup output)
   -> Preserve previously COMPLETED steps
   -> Preserve later PENDING steps
   -> Mark execution as FAILED (single guarded write, only while RUNNING)
   -> Set result.recoveryReason = "Execution timed out while running"
   -> Register WORKFLOW_EXECUTION_RECOVERY_FAILED audit log
+  -> Register WORKFLOW_EXECUTION_STEP_RECOVERED_VIA_JIRA_LOOKUP per recovered step
 ```
+
+The Jira marker lookup (Sprint 6.4.3) runs **outside** the recovery transaction,
+so a slow or unreachable Jira never holds a database transaction open. It is
+read-only, best-effort, and never throws: when Jira is disabled, unreachable, or
+finds nothing, the step keeps the safe default and is recorded `FAILED`. Only
+`JIRA_COMMENT` steps are eligible — GovFlow embeds a stable marker in every
+comment it creates, while `JIRA_TRANSITION` has no equivalent free-text evidence.
+
+Even when a step is remotely confirmed and corrected to `COMPLETED`, the
+**execution itself is always finalized `FAILED`**. The worker genuinely timed
+out; the recovery only corrects step-level truth so a future retry or admin
+reprocess never duplicates the Jira comment. Resurrecting a timed-out execution
+to `COMPLETED` is intentionally out of scope.
 
 Each execution is recovered inside a single transaction: the RUNNING steps are
 failed first, then the execution is failed with one guarded update
@@ -794,6 +812,7 @@ WORKFLOW_EXECUTION_PROCESS_FAILED
 WORKFLOW_EXECUTION_PROCESS_SKIPPED
 WORKFLOW_EXECUTION_PROCESS_TECHNICAL_FAILURE
 WORKFLOW_EXECUTION_RECOVERY_FAILED
+WORKFLOW_EXECUTION_STEP_RECOVERED_VIA_JIRA_LOOKUP
 JIRA_COMMENT_ATTEMPTED
 JIRA_COMMENT_COMPLETED
 JIRA_COMMENT_FAILED

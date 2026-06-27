@@ -44,6 +44,112 @@ function buildJiraCommentBody(text) {
   };
 }
 
+// Single source of truth for the marker GovFlow embeds in every JIRA_COMMENT
+// body (see handleJiraCommentStep in workflowStepHandlers.js). Centralizing it
+// here means the text written when a comment is created and the text searched
+// for during remote-assisted recovery can never drift apart.
+function buildExecutionStepMarker(executionStepId) {
+  return `GovFlow executionStepId: ${executionStepId}`;
+}
+
+function isJiraReady() {
+  return Boolean(
+    jiraClient &&
+      env.jira.enabled &&
+      env.jira.baseUrl &&
+      env.jira.email &&
+      env.jira.apiToken
+  );
+}
+
+// Flatten Atlassian Document Format (ADF) nodes to plain text so the marker
+// string can be located regardless of nesting (paragraphs, text runs, etc.).
+function extractAdfPlainText(node) {
+  if (!node) {
+    return "";
+  }
+
+  if (typeof node.text === "string") {
+    return node.text;
+  }
+
+  if (Array.isArray(node.content)) {
+    return node.content.map(extractAdfPlainText).join("");
+  }
+
+  return "";
+}
+
+const COMMENT_LOOKUP_PAGE_SIZE = 50;
+const COMMENT_LOOKUP_MAX_PAGES = 3;
+
+// Read-only, remote-assisted dedup check used by stale-running recovery
+// (Sprint 6.4.3). Looks for a comment already carrying this execution step's
+// marker so a crash between "Jira returned success" and "GovFlow persisted
+// the output" does not get recorded as a false FAILED.
+//
+// Contract: this function NEVER throws. Jira being disabled, misconfigured,
+// unreachable, or returning an error all resolve to `null` ("could not
+// verify"), so callers can safely fall back to their existing safe default
+// without any extra error handling. This is local-search verification, not a
+// guarantee: results are best-effort, bounded by COMMENT_LOOKUP_MAX_PAGES,
+// and only ever used to additionally confirm a comment exists — never to call
+// Jira again.
+async function findCommentByExecutionStepMarker({ issueKey, executionStepId }) {
+  if (!isJiraReady() || !issueKey || !executionStepId) {
+    return null;
+  }
+
+  const marker = buildExecutionStepMarker(executionStepId);
+
+  try {
+    let startAt = 0;
+
+    for (let page = 0; page < COMMENT_LOOKUP_MAX_PAGES; page += 1) {
+      const response = await jiraClient.get(
+        `/rest/api/3/issue/${encodeURIComponent(issueKey)}/comment`,
+        {
+          params: {
+            orderBy: "-created",
+            maxResults: COMMENT_LOOKUP_PAGE_SIZE,
+            startAt,
+          },
+        }
+      );
+
+      const comments = response?.comments || [];
+      const match = comments.find((comment) =>
+        extractAdfPlainText(comment.body).includes(marker)
+      );
+
+      if (match) {
+        return {
+          commentId: match.id,
+          issueKey,
+          created: match.created,
+        };
+      }
+
+      startAt += comments.length;
+
+      const total = response?.total ?? startAt;
+
+      if (comments.length < COMMENT_LOOKUP_PAGE_SIZE || startAt >= total) {
+        break;
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error(
+      `Jira comment lookup failed for execution step ${executionStepId}:`,
+      error
+    );
+
+    return null;
+  }
+}
+
 function assertJiraIntegrationReady() {
   if (!jiraClient) {
     throw new JiraTechnicalError("Jira client not available");
@@ -128,7 +234,9 @@ async function transitionIssue({ issueKey, transitionId }) {
 
 module.exports = {
   addCommentToIssue,
+  buildExecutionStepMarker,
   buildJiraCommentBody,
+  findCommentByExecutionStepMarker,
   testConnection,
   transitionIssue,
 };

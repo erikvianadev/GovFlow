@@ -2,7 +2,9 @@
 
 This document describes how GovFlow avoids duplicating external Jira side
 effects (comments and transitions) when a workflow execution is retried, fails
-partially, or runs concurrently with recovery. It reflects Sprint 6.4.2.
+partially, or runs concurrently with recovery. It reflects Sprint 6.4.2
+(local, persisted-output idempotency) and Sprint 6.4.3 (remote-assisted
+recovery for `JIRA_COMMENT`).
 
 ## Central problem
 
@@ -83,6 +85,49 @@ already applied (`provider = "jira"`, `operation = "transition"`,
 `transitionId` present), the handler is not called and the persisted output is
 reused. Transitions are more delicate than comments — see *Residual risks*.
 
+### 7. Remote-assisted recovery for JIRA_COMMENT (Sprint 6.4.3)
+
+Layers 1–6 are **local**: they depend on output GovFlow managed to persist. They
+do nothing for the worst residual case — the worker created the Jira comment and
+then crashed **before** persisting any output, leaving the step stuck `RUNNING`.
+Local state has no record of the side effect, so the stale-running recovery would
+record a false `FAILED`.
+
+Sprint 6.4.3 adds a **read-only, best-effort** remote check, scoped to
+`JIRA_COMMENT` only. GovFlow embeds a stable marker in every comment it creates:
+
+```txt
+GovFlow executionStepId: <executionStepId>
+```
+
+The marker text is produced by a single source of truth
+(`jiraService.buildExecutionStepMarker`) used both when writing the comment
+(`workflowStepHandlers.buildGovFlowJiraComment`) and when searching for it during
+recovery, so the two can never drift apart.
+
+When the stale-running recovery finds a `RUNNING` `JIRA_COMMENT` step, before
+finalizing it as `FAILED` it asks Jira (read-only) whether a comment carrying
+that step's marker already exists:
+
+- The lookup (`jiraService.findCommentByExecutionStepMarker`) lists the issue's
+  comments most-recent first, paginated (50 per page, **capped at 3 pages**),
+  flattening each comment's ADF body to plain text to locate the marker.
+- It **runs before the recovery transaction** — a slow or unreachable Jira never
+  holds a database transaction open.
+- It **never throws**: Jira disabled, misconfigured, unreachable, or returning an
+  error all resolve to "could not verify", which falls back to the existing safe
+  default (`FAILED`). The result is therefore never *worse* than before 6.4.3.
+- If a matching comment is found, the step is corrected to `COMPLETED` (with a
+  reconstructed output carrying `recoveredViaRemoteLookup: true`) **inside the
+  same recovery transaction** that just exclusively locked the row.
+- The execution itself is **always** finalized `FAILED` regardless — this sprint
+  corrects only step-level truth (so a future retry/admin-reprocess never
+  duplicates the comment); it does not resurrect a timed-out execution to
+  `COMPLETED`.
+
+`JIRA_TRANSITION` is **not** covered: a transition carries no free-text marker,
+so there is no equivalent remote evidence. It remains a documented residual risk.
+
 ## Step lifecycle
 
 ```txt
@@ -148,15 +193,37 @@ Execution-level audits remain unchanged: `WORKFLOW_EXECUTION_PROCESS_STARTED`,
 `WORKFLOW_EXECUTION_PROCESS_COMPLETED`, `WORKFLOW_EXECUTION_PROCESS_FAILED`,
 `WORKFLOW_EXECUTION_PROCESS_TECHNICAL_FAILURE`, `WORKFLOW_EXECUTION_PROCESS_SKIPPED`.
 
+### Recovery audit events (Sprint 6.4.3)
+
+The stale-running recovery emits, per recovered execution:
+
+| action | meaning |
+| --- | --- |
+| `WORKFLOW_EXECUTION_RECOVERY_FAILED` | the execution was finalized `FAILED` by the recovery (always emitted; carries `failedRunningStepsCount` and `recoveredRunningStepsCount`) |
+| `WORKFLOW_EXECUTION_STEP_RECOVERED_VIA_JIRA_LOOKUP` | a `RUNNING` `JIRA_COMMENT` step was confirmed via the remote lookup and corrected to `COMPLETED` instead of `FAILED` (one per recovered step) |
+
+`WORKFLOW_EXECUTION_STEP_RECOVERED_VIA_JIRA_LOOKUP` is distinct from
+`WORKFLOW_EXECUTION_STEP_SKIPPED`: the latter is a processor-time idempotent skip
+based on **local** persisted output; the former is a recovery-time correction
+based on **remote** evidence that the comment exists despite no local output.
+
 ## Residual risks (known)
 
 These are **not** solved by this sprint and are accepted as known limitations:
 
-- **Crash after the Jira response and before persisting output.** If the worker
-  dies between Jira returning success and `updateStatus(COMPLETED)` persisting
-  the output, there is no local signal. The step stays `RUNNING`, is not
-  re-claimable, and the execution is left for the stale-running recovery. The
-  external effect already happened but is not recorded locally.
+- **Crash after the Jira response and before persisting output — `JIRA_COMMENT`
+  (partially mitigated since 6.4.3).** If the worker dies between Jira returning
+  success and `updateStatus(COMPLETED)` persisting the output, there is no local
+  signal. The step stays `RUNNING` for the stale-running recovery. Sprint 6.4.3
+  mitigates this for comments with a **best-effort** remote marker lookup: when
+  Jira is enabled and reachable, the recovery corrects the step to `COMPLETED`
+  instead of a false `FAILED`. This is not a guarantee — if Jira is disabled,
+  unreachable, or the comment is beyond the 3-page lookup cap, the step still
+  falls back to `FAILED`.
+- **Crash after the Jira response and before persisting output — `JIRA_TRANSITION`
+  (unmitigated).** A transition carries no free-text marker, so there is no
+  remote evidence to look up. The step stays `RUNNING` and the recovery records
+  it `FAILED`; the external effect already happened but is not recorded locally.
 - **Blind transition retry without persisted output.** Without a persisted
   output, a transition retry still goes through the handler. If the issue has
   already moved to another status, Jira typically rejects the old
@@ -168,18 +235,28 @@ These are **not** solved by this sprint and are accepted as known limitations:
 
 ## Out of scope
 
-The following were intentionally **not** implemented in this sprint:
+The following were intentionally **not** implemented:
 
-- remote dedup against Jira;
-- querying existing Jira comments / issue status / available transitions;
+- remote dedup at **processing** time (the 6.4.3 lookup is recovery-only and
+  read-only; the processor still relies on local persisted-output idempotency);
+- querying issue status / available transitions to verify a `JIRA_TRANSITION`
+  (would require persisting the expected target status to tell "already applied"
+  from a real failure — out of scope);
 - rollback of an applied Jira transition;
 - Jira webhooks;
 - Jira OAuth.
 
+Querying existing Jira comments is now implemented, but **only for recovery** of
+`JIRA_COMMENT` steps (see layer 7).
+
 ## Explicit note
 
-This sprint implements **local idempotency based on persisted output**. It is a
+Sprint 6.4.2 implements **local idempotency based on persisted output**. It is a
 strong reduction of duplicate Jira side effects under retries and concurrency,
-but it is **not absolute exactly-once delivery against Jira**: the residual
-risks above remain until a future phase adds remote dedup or persistence closer
-to the Jira call.
+but it is **not absolute exactly-once delivery against Jira**.
+
+Sprint 6.4.3 adds a **remote-assisted, best-effort** recovery check for
+`JIRA_COMMENT` only, narrowing (but not eliminating) the worst residual case —
+a comment created right before a crash being recorded as a false `FAILED`. It is
+read-only, recovery-time, and bounded; it is still not exactly-once delivery, and
+`JIRA_TRANSITION` remains unmitigated.

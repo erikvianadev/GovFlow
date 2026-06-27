@@ -55,6 +55,8 @@ function loadHandlers({ addCommentToIssue, transitionIssue } = {}) {
   );
 
   mockModule(jiraServicePath, {
+    buildExecutionStepMarker: (executionStepId) =>
+      `GovFlow executionStepId: ${executionStepId}`,
     addCommentToIssue:
       addCommentToIssue ||
       (async (payload) => {

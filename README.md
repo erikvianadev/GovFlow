@@ -7,12 +7,14 @@ integrations such as Jira.
 
 ## Current Status
 
-Sprint 6.4.2 - Jira Idempotency & Step-Level Concurrency completed.
+Sprint 6.4.3 - Remote-Assisted Jira Deduplication completed.
 
 GovFlow processes workflow executions asynchronously and integrates with the
 real Jira Cloud REST API for `JIRA_COMMENT` and `JIRA_TRANSITION` steps. Recent
-sprints added security hardening (6.4.1) and step-level idempotency to avoid
-duplicate external Jira side effects under retries and concurrency (6.4.2).
+sprints added security hardening (6.4.1), step-level idempotency to avoid
+duplicate external Jira side effects under retries and concurrency (6.4.2), and
+a best-effort remote check during stale-running recovery (6.4.3) that asks Jira
+whether a `JIRA_COMMENT` was already created before recording a false `FAILED`.
 
 The current backend includes:
 
@@ -57,6 +59,8 @@ The current backend includes:
 - Retry strategy with exponential backoff
 - Business failure vs technical failure handling
 - Stale RUNNING execution recovery (endpoint + script)
+- Remote-assisted Jira dedup on recovery (read-only, best-effort marker lookup
+  that recovers a JIRA_COMMENT step to COMPLETED instead of a false FAILED)
 - Workflow status lifecycle
 - Step-level execution tracking
 - Failure handling for workflow processing
@@ -483,6 +487,7 @@ WORKFLOW_EXECUTION_PROCESS_TECHNICAL_FAILURE
 WORKFLOW_EXECUTION_PROCESS_SKIPPED
 WORKFLOW_EXECUTION_STEP_SKIPPED
 WORKFLOW_EXECUTION_RECOVERY_FAILED
+WORKFLOW_EXECUTION_STEP_RECOVERED_VIA_JIRA_LOOKUP
 JIRA_COMMENT_ATTEMPTED
 JIRA_COMMENT_COMPLETED
 JIRA_COMMENT_FAILED
@@ -501,6 +506,13 @@ execution that was already finalized concurrently (for example, recovered as
 `WORKFLOW_EXECUTION_STEP_SKIPPED` is recorded when a step is skipped idempotently
 (already completed, comment already created, transition already applied) or
 cannot be safely re-claimed; the `reason` in the metadata carries the detail.
+
+`WORKFLOW_EXECUTION_STEP_RECOVERED_VIA_JIRA_LOOKUP` is recorded when the
+stale-running recovery confirms, via a read-only Jira lookup, that a `RUNNING`
+`JIRA_COMMENT` step's comment already exists, and corrects the step to
+`COMPLETED` instead of `FAILED`. The execution itself is still finalized
+`FAILED`; only the step-level truth is corrected so a future retry never
+duplicates the comment.
 
 ## Testing
 
@@ -543,14 +555,15 @@ docker exec govflow_api npm test
 ## Next Steps
 
 Sprint 6.4.2 delivered step-level idempotency and local deduplication of Jira
-side effects on top of the real Jira integration and security hardening of the
-prior sprints.
+side effects; Sprint 6.4.3 added a read-only, best-effort remote marker lookup
+that lets stale-running recovery recover a `JIRA_COMMENT` step instead of
+recording a false `FAILED`.
 
 Planned next improvements:
 
-- Remote-Assisted Jira Deduplication: persistence closer to the Jira call and
-  optional remote dedup/verification (lookup comments by idempotencyKey; check
-  current issue status/transitions to tell "already applied" from a real failure)
+- Remote dedup at processing time and `JIRA_TRANSITION` verification (persist the
+  expected target status to tell "already applied" from a real failure; the
+  6.4.3 lookup is recovery-only and covers `JIRA_COMMENT` only)
 - Observability of skips by audit reason and worker/queue metrics
 - Queue dashboard / admin tooling
 - Automatic scheduled recovery for stale RUNNING executions
