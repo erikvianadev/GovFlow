@@ -1,0 +1,4 @@
+# Normalize all text files to LF in the working tree, regardless of OS.
+# Overrides a local core.autocrlf=true so Windows checkouts don't reintroduce
+# CRLF, which broke literal "\n" lookups in the route configuration tests.
+* text=auto eol=lf
