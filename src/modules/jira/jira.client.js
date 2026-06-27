@@ -36,7 +36,21 @@ async function post(path, payload) {
   return response.data;
 }
 
+async function get(path, { params } = {}) {
+  const response = await axios.get(`${getBaseUrl()}${path}`, {
+    timeout: env.jira.timeoutMs,
+    params,
+    headers: {
+      Authorization: createAuthHeader(),
+      Accept: "application/json",
+    },
+  });
+
+  return response.data;
+}
+
 module.exports = {
   getMyself,
   post,
+  get,
 };

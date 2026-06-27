@@ -16,9 +16,10 @@ function mockModule(modulePath, exports) {
   };
 }
 
-function loadService({ env = {}, post } = {}) {
+function loadService({ env = {}, post, get } = {}) {
   const calls = {
     post: [],
+    get: [],
   };
 
   [servicePath, clientPath, envPath].forEach(
@@ -47,6 +48,13 @@ function loadService({ env = {}, post } = {}) {
           self: "https://govflow.atlassian.net/rest/api/3/issue/ABC-123/comment/10001",
           created: "2026-06-16T10:00:00.000Z",
         };
+      }),
+    get:
+      get ||
+      (async (...args) => {
+        calls.get.push(args);
+
+        return { comments: [], startAt: 0, maxResults: 50, total: 0 };
       }),
   });
 
@@ -273,4 +281,108 @@ test("transitionIssue maps 429 and network failures to technical failures", asyn
         error.isRetryable === true
     );
   }
+});
+
+function buildCommentFixture({ id, text, created }) {
+  return {
+    id,
+    created,
+    body: {
+      type: "doc",
+      version: 1,
+      content: [{ type: "paragraph", content: [{ type: "text", text }] }],
+    },
+  };
+}
+
+test("buildExecutionStepMarker matches the marker workflowStepHandlers embeds in JIRA_COMMENT bodies", () => {
+  const { service } = loadService();
+  assert.strictEqual(
+    service.buildExecutionStepMarker("execution-step-1"),
+    "GovFlow executionStepId: execution-step-1"
+  );
+});
+
+test("findCommentByExecutionStepMarker finds a comment carrying the marker", async () => {
+  const { service, calls } = loadService({
+    get: async (...args) => {
+      calls.get.push(args);
+      return {
+        startAt: 0,
+        maxResults: 50,
+        total: 2,
+        comments: [
+          buildCommentFixture({
+            id: "10235",
+            text: "Workflow processed by GovFlow\n\nGovFlow executionStepId: execution-step-1\nGovFlow executionId: exec-1",
+            created: "2026-06-16T10:00:00.000Z",
+          }),
+          buildCommentFixture({ id: "9001", text: "An unrelated comment", created: "2026-06-15T10:00:00.000Z" }),
+        ],
+      };
+    },
+  });
+
+  const result = await service.findCommentByExecutionStepMarker({
+    issueKey: "ABC-123",
+    executionStepId: "execution-step-1",
+  });
+
+  assert.deepStrictEqual(result, { commentId: "10235", issueKey: "ABC-123", created: "2026-06-16T10:00:00.000Z" });
+  assert.strictEqual(calls.get[0][0], "/rest/api/3/issue/ABC-123/comment");
+  assert.deepStrictEqual(calls.get[0][1], { params: { orderBy: "-created", maxResults: 50, startAt: 0 } });
+});
+
+test("findCommentByExecutionStepMarker returns null when no comment matches", async () => {
+  const { service } = loadService({
+    get: async () => ({
+      startAt: 0, maxResults: 50, total: 1,
+      comments: [buildCommentFixture({ id: "9001", text: "An unrelated comment", created: "2026-06-15T10:00:00.000Z" })],
+    }),
+  });
+
+  assert.strictEqual(
+    await service.findCommentByExecutionStepMarker({ issueKey: "ABC-123", executionStepId: "execution-step-1" }),
+    null
+  );
+});
+
+test("findCommentByExecutionStepMarker paginates up to the page cap, most-recent first", async () => {
+  const { service, calls } = loadService({
+    get: async (...args) => {
+      calls.get.push(args);
+      return {
+        startAt: args[1].params.startAt, maxResults: 50, total: 500,
+        comments: Array.from({ length: 50 }, (_, i) => buildCommentFixture({
+          id: `id-${args[1].params.startAt + i}`, text: "no marker here", created: "2026-06-16T10:00:00.000Z",
+        })),
+      };
+    },
+  });
+
+  const result = await service.findCommentByExecutionStepMarker({ issueKey: "ABC-123", executionStepId: "execution-step-1" });
+
+  assert.strictEqual(result, null);
+  assert.strictEqual(calls.get.length, 3);
+  assert.deepStrictEqual(calls.get.map((args) => args[1].params.startAt), [0, 50, 100]);
+});
+
+test("findCommentByExecutionStepMarker never throws: disabled, unconfigured, and Jira errors all resolve to null", async () => {
+  const { service: disabledService } = loadService({ env: { enabled: false } });
+  assert.strictEqual(
+    await disabledService.findCommentByExecutionStepMarker({ issueKey: "ABC-123", executionStepId: "execution-step-1" }),
+    null
+  );
+
+  const { service: erroringService } = loadService({ get: async () => { throw new Error("Jira unreachable"); } });
+  assert.strictEqual(
+    await erroringService.findCommentByExecutionStepMarker({ issueKey: "ABC-123", executionStepId: "execution-step-1" }),
+    null
+  );
+
+  const { service } = loadService();
+  assert.strictEqual(
+    await service.findCommentByExecutionStepMarker({ issueKey: null, executionStepId: "execution-step-1" }),
+    null
+  );
 });
