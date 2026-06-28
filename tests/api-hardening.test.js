@@ -9,6 +9,14 @@ const authRoutesPath = path.join(
   __dirname,
   "../src/modules/auth/auth.routes.js"
 );
+const authControllerPath = path.join(
+  __dirname,
+  "../src/modules/auth/auth.controller.js"
+);
+const authServicePath = path.join(
+  __dirname,
+  "../src/modules/auth/auth.service.js"
+);
 const rateLimitMiddlewarePath = path.join(
   __dirname,
   "../src/middlewares/rate-limit.middleware.js"
@@ -38,10 +46,19 @@ function mockModule(modulePath, exports) {
 }
 
 async function withTestServer(callback, { mocks = false } = {}) {
+  // Evict the whole auth request chain (routes -> controller -> service), not
+  // just the entry points. auth.service binds `usersRepository` and
+  // `safeRegisterAuditLog` at module load via top-level requires, so replacing
+  // those modules in require.cache below has no effect unless auth.service is
+  // re-required. Without this, a prior test that loaded the real chain leaves
+  // auth.service pointing at the real repository, and the mocks are bypassed
+  // (the login path then hits Postgres and returns 500 instead of 401).
   [
     appPath,
     routesIndexPath,
     authRoutesPath,
+    authControllerPath,
+    authServicePath,
     rateLimitMiddlewarePath,
     workflowProcessingQueueServicePath,
     workflowProcessingJobServicePath,
