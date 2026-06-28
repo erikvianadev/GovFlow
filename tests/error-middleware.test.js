@@ -10,6 +10,7 @@ const errorMiddlewarePath = path.join(
 );
 const envPath = path.join(__dirname, "../src/config/env.js");
 const apiResponsePath = path.join(__dirname, "../src/utils/apiResponse.js");
+const loggerPath = path.join(__dirname, "../src/config/logger.js");
 
 function mockModule(modulePath, exports) {
   delete require.cache[modulePath];
@@ -24,11 +25,12 @@ function mockModule(modulePath, exports) {
 // Load the error middleware with config/env mocked to a specific NODE_ENV.
 // The real apiResponse is kept so the response shaping is exercised end to end.
 function loadErrorMiddleware(nodeEnv) {
-  [errorMiddlewarePath, envPath, apiResponsePath].forEach((modulePath) =>
-    delete require.cache[modulePath]
+  [errorMiddlewarePath, envPath, apiResponsePath, loggerPath].forEach(
+    (modulePath) => delete require.cache[modulePath]
   );
 
   mockModule(envPath, { app: { nodeEnv } });
+  mockModule(loggerPath, { error: () => {} });
 
   return require(errorMiddlewarePath);
 }
@@ -53,15 +55,9 @@ function runMiddleware(nodeEnv, error) {
   const errorMiddleware = loadErrorMiddleware(nodeEnv);
   const res = createMockResponse();
 
-  // Silence the intentional server-side console.error during the assertion.
-  const originalConsoleError = console.error;
-  console.error = () => {};
-
-  try {
-    errorMiddleware(error, {}, res, () => {});
-  } finally {
-    console.error = originalConsoleError;
-  }
+  // req is {} here, so error.middleware falls back to the (mocked, silent)
+  // shared logger instead of req.log — no console patching needed.
+  errorMiddleware(error, {}, res, () => {});
 
   return res;
 }

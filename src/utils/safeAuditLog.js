@@ -1,10 +1,11 @@
 const auditLogsService = require("../modules/audit-logs/auditLogs.service");
+const logger = require("../config/logger");
 
 async function safeRegisterAuditLog(payload) {
   try {
     await auditLogsService.register(payload);
   } catch (error) {
-    console.error("Failed to register audit log:", error);
+    logger.error({ err: error }, "Failed to register audit log");
   }
 }
 

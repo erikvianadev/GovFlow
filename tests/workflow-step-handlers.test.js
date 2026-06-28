@@ -8,6 +8,7 @@ const handlersPath = path.join(
 );
 const jiraServicePath = path.join(__dirname, "../src/modules/jira/jira.service.js");
 const safeAuditLogPath = path.join(__dirname, "../src/utils/safeAuditLog.js");
+const loggerPath = path.join(__dirname, "../src/config/logger.js");
 
 const execution = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -48,11 +49,28 @@ function loadHandlers({ addCommentToIssue, transitionIssue } = {}) {
   const calls = {
     jira: [],
     audit: [],
+    logErrors: [],
   };
 
-  [handlersPath, jiraServicePath, safeAuditLogPath].forEach(
+  [handlersPath, jiraServicePath, safeAuditLogPath, loggerPath].forEach(
     (modulePath) => delete require.cache[modulePath]
   );
+
+  // The handlers build a child logger; the stub returns itself so log.info /
+  // log.error resolve regardless of nesting. Failure-path log.error calls are
+  // captured so a test can assert the handler logged before re-throwing.
+  const loggerStub = {
+    info: () => {},
+    warn: () => {},
+    debug: () => {},
+    error: (...args) => {
+      calls.logErrors.push(args);
+    },
+    child() {
+      return loggerStub;
+    },
+  };
+  mockModule(loggerPath, loggerStub);
 
   mockModule(jiraServicePath, {
     buildExecutionStepMarker: (executionStepId) =>
@@ -242,6 +260,9 @@ test("JIRA_TRANSITION propagates technical Jira errors for retry", async () => {
     calls.audit.map((entry) => entry.action),
     ["JIRA_TRANSITION_ATTEMPTED", "JIRA_TRANSITION_FAILED"]
   );
+  // The handler logs the failure (correlated via the child logger) before
+  // re-throwing for retry.
+  assert.strictEqual(calls.logErrors.length, 1);
 });
 
 test("handleWorkflowStep rejects unsupported action types", async () => {

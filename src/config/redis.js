@@ -1,6 +1,7 @@
 const { createClient } = require("redis"); // Import the createClient function from the redis package to create a Redis client
 
-const env = require("./env"); 
+const env = require("./env");
+const logger = require("./logger");
 
 let redisClient;
 
@@ -14,7 +15,7 @@ function createRedisClient() { // Create a new Redis client using the configurat
   });
 
   client.on("error", (error) => { // Log any errors that occur with the Redis client
-    console.error("Redis client error:", error);
+    logger.error({ err: error }, "Redis client error");
   });
 
   return client;

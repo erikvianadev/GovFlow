@@ -189,6 +189,21 @@ const env = {
     apiToken: process.env.JIRA_API_TOKEN,
     timeoutMs: Number(process.env.JIRA_TIMEOUT_MS) || 10000,
   },
+
+  log: {
+    // Valid pino levels: fatal, error, warn, info, debug, trace, silent.
+    // An explicit LOG_LEVEL always wins. Otherwise: "info" in production (no
+    // debug noise in real traffic), "silent" under test (so pino-http request
+    // logging never interleaves with the test runner output), and "debug" in
+    // development so nothing is missed locally.
+    level:
+      process.env.LOG_LEVEL ||
+      (nodeEnv === "production"
+        ? "info"
+        : nodeEnv === "test"
+          ? "silent"
+          : "debug"),
+  },
 };
 
 module.exports = env;

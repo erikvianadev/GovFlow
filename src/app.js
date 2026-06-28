@@ -1,10 +1,11 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const pinoHttp = require('pino-http');
 
 const env = require('./config/env');
+const logger = require('./config/logger');
 const routes = require('./routes');
-const requestLoggerMiddleware = require('./middlewares/request-logger.middleware');
 const notFoundMiddleware = require('./middlewares/not-found.middleware');
 const errorMiddleware = require('./middlewares/error.middleware');
 
@@ -31,7 +32,14 @@ app.use(helmet());
 app.use(cors(corsOptions));
 app.use(express.json({ limit: "100kb" }));
 
-app.use(requestLoggerMiddleware);
+// pino-http generates a per-request req.id, logs method/route/status/duration
+// automatically, and exposes a request-scoped logger as req.log for the rest
+// of the chain (including error.middleware).
+app.use(pinoHttp({ logger }));
+app.use((req, res, next) => {
+  res.setHeader("X-Request-Id", req.id);
+  next();
+});
 
 app.use(routes);
 

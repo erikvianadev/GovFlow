@@ -5,6 +5,7 @@ const test = require("node:test");
 const servicePath = path.join(__dirname, "../src/modules/jira/jira.service.js");
 const clientPath = path.join(__dirname, "../src/modules/jira/jira.client.js");
 const envPath = path.join(__dirname, "../src/config/env.js");
+const loggerPath = path.join(__dirname, "../src/config/logger.js");
 
 function mockModule(modulePath, exports) {
   delete require.cache[modulePath];
@@ -22,10 +23,15 @@ function loadService({ env = {}, post, get } = {}) {
     get: [],
   };
 
-  [servicePath, clientPath, envPath].forEach(
+  [servicePath, clientPath, envPath, loggerPath].forEach(
     (modulePath) => delete require.cache[modulePath]
   );
 
+  mockModule(loggerPath, {
+    debug: () => {},
+    info: () => {},
+    error: () => {},
+  });
   mockModule(envPath, {
     jira: {
       enabled: true,

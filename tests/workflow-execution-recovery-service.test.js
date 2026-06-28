@@ -18,6 +18,7 @@ const workflowExecutionStepsRepositoryPath = path.join(
 );
 const jiraServicePath = path.join(__dirname, "../src/modules/jira/jira.service.js");
 const safeAuditLogPath = path.join(__dirname, "../src/utils/safeAuditLog.js");
+const loggerPath = path.join(__dirname, "../src/config/logger.js");
 
 function mockModule(modulePath, exports) {
   delete require.cache[modulePath];
@@ -66,8 +67,15 @@ function loadService({
     workflowExecutionStepsRepositoryPath,
     jiraServicePath,
     safeAuditLogPath,
+    loggerPath,
   ].forEach((modulePath) => delete require.cache[modulePath]);
 
+  mockModule(loggerPath, {
+    info: () => {},
+    warn: () => {},
+    debug: () => {},
+    error: () => {},
+  });
   mockModule(envPath, {
     workflowExecution: {
       runningTimeoutMinutes: 30,
