@@ -5,6 +5,7 @@ const {
   WORKFLOW_PROCESSING_QUEUE_NAME,
 } = require("../queues/workflowProcessing.queue");
 const workflowProcessorService = require("../modules/workflow-processing/workflowProcessor.service");
+const logger = require("../config/logger");
 
 function createWorkflowProcessingWorker() {
   const worker = new Worker(
@@ -12,12 +13,17 @@ function createWorkflowProcessingWorker() {
     async (job) => {
       const { executionId, processedBy } = job.data;
 
-      console.log("Workflow processing job started:", {
-        jobId: job.id,
-        executionId,
-        processedBy,
-        attemptsMade: job.attemptsMade,
-      });
+      // Correlate every log line for this job (start, downstream Jira calls,
+      // completion) with the same executionId/jobId.
+      const log = logger.child({ executionId, jobId: job.id });
+
+      log.info(
+        {
+          processedBy,
+          attemptsMade: job.attemptsMade,
+        },
+        "Workflow processing job started"
+      );
 
       if (!executionId) {
         throw new UnrecoverableError("Job data must include executionId");
@@ -58,24 +64,31 @@ function createWorkflowProcessingWorker() {
   );
 
   worker.on("completed", (job, result) => {
-    console.log("Workflow processing job completed:", {
-      jobId: job.id,
-      result,
-    });
+    logger.info(
+      {
+        jobId: job.id,
+        executionId: job?.data?.executionId,
+        result,
+      },
+      "Workflow processing job completed"
+    );
   });
 
   worker.on("failed", (job, error) => {
-    console.error("Workflow processing job failed:", {
-      jobId: job?.id,
-      executionId: job?.data?.executionId,
-      attemptsMade: job?.attemptsMade,
-      attemptsStarted: job?.attemptsStarted,
-      failedReason: error.message,
-    });
+    logger.error(
+      {
+        jobId: job?.id,
+        executionId: job?.data?.executionId,
+        attemptsMade: job?.attemptsMade,
+        attemptsStarted: job?.attemptsStarted,
+        failedReason: error.message,
+      },
+      "Workflow processing job failed"
+    );
   });
 
   worker.on("error", (error) => {
-    console.error("Workflow processing worker error:", error);
+    logger.error({ err: error }, "Workflow processing worker error");
   });
 
   return worker;

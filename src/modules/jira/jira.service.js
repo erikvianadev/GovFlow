@@ -1,6 +1,7 @@
 const jiraClient = require("./jira.client");
 const AppError = require("../../errors/AppError");
 const env = require("../../config/env");
+const logger = require("../../config/logger");
 const { JiraBusinessError, JiraTechnicalError } = require("./jira.errors");
 
 async function testConnection() {
@@ -16,14 +17,32 @@ async function testConnection() {
     throw new AppError("Jira integration is not configured", 500);
   }
 
-  const user = await jiraClient.getMyself();
+  logger.debug("Calling Jira: test connection");
 
-  return {
-    connected: true,
-    accountId: user.accountId,
-    displayName: user.displayName,
-    emailAddress: user.emailAddress,
-  };
+  try {
+    const user = await jiraClient.getMyself();
+
+    logger.info(
+      { accountId: user.accountId },
+      "Jira call succeeded: test connection"
+    );
+
+    return {
+      connected: true,
+      accountId: user.accountId,
+      displayName: user.displayName,
+      emailAddress: user.emailAddress,
+    };
+  } catch (error) {
+    // Route the raw axios error through normalizeJiraError so neither the log
+    // below nor the error.middleware ever sees error.config.headers (the Jira
+    // Basic Auth header). normalizeJiraError is hoisted (function declaration).
+    const normalizedError = normalizeJiraError(error, "test connection");
+
+    logger.error({ err: normalizedError }, "Jira call failed: test connection");
+
+    throw normalizedError;
+  }
 }
 
 function buildJiraCommentBody(text) {
@@ -141,9 +160,13 @@ async function findCommentByExecutionStepMarker({ issueKey, executionStepId }) {
 
     return null;
   } catch (error) {
-    console.error(
-      `Jira comment lookup failed for execution step ${executionStepId}:`,
-      error
+    // normalizeJiraError strips the raw axios error down to safe fields, so the
+    // Authorization header (Jira Basic Auth) never reaches the log here. The
+    // normalized error is only used for logging; the contract still resolves to
+    // null without ever throwing.
+    logger.error(
+      { executionStepId, issueKey, err: normalizeJiraError(error, "comment lookup") },
+      "Jira comment lookup failed"
     );
 
     return null;
@@ -190,12 +213,19 @@ function normalizeJiraError(error, operation) {
 async function addCommentToIssue({ issueKey, comment }) {
   assertJiraIntegrationReady();
 
+  logger.debug({ issueKey }, "Calling Jira: add comment");
+
   try {
     const response = await jiraClient.post(
       `/rest/api/3/issue/${encodeURIComponent(issueKey)}/comment`,
       {
         body: buildJiraCommentBody(comment),
       }
+    );
+
+    logger.info(
+      { issueKey, commentId: response.id },
+      "Jira call succeeded: add comment"
     );
 
     return {
@@ -205,12 +235,21 @@ async function addCommentToIssue({ issueKey, comment }) {
       created: response.created,
     };
   } catch (error) {
-    throw normalizeJiraError(error, "comment");
+    const normalizedError = normalizeJiraError(error, "comment");
+
+    logger.error(
+      { issueKey, err: normalizedError },
+      "Jira call failed: add comment"
+    );
+
+    throw normalizedError;
   }
 }
 
 async function transitionIssue({ issueKey, transitionId }) {
   assertJiraIntegrationReady();
+
+  logger.debug({ issueKey, transitionId }, "Calling Jira: transition issue");
 
   try {
     await jiraClient.post(
@@ -222,13 +261,25 @@ async function transitionIssue({ issueKey, transitionId }) {
       }
     );
 
+    logger.info(
+      { issueKey, transitionId },
+      "Jira call succeeded: transition issue"
+    );
+
     return {
       issueKey,
       transitionId,
       status: "completed",
     };
   } catch (error) {
-    throw normalizeJiraError(error, "transition");
+    const normalizedError = normalizeJiraError(error, "transition");
+
+    logger.error(
+      { issueKey, transitionId, err: normalizedError },
+      "Jira call failed: transition issue"
+    );
+
+    throw normalizedError;
   }
 }
 

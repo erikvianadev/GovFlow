@@ -1,5 +1,6 @@
 const db = require("../../config/database"); // import database connection utilities
 const { checkRedisConnection } = require("../../config/redis"); // import the function to check Redis connection health
+const logger = require("../../config/logger");
 
 async function collectDependencyStatuses() {
   const dbStatus = await getDatabaseStatus(); // verify database connection status
@@ -50,7 +51,7 @@ async function getDatabaseStatus() {
     };
   } catch (error) {
     // Log the real cause server-side only; never return it in the HTTP body.
-    console.error("Health check database failure:", error);
+    logger.error({ err: error }, "Health check database failure");
 
     return {
       status: "error",
@@ -71,7 +72,7 @@ async function getRedisStatus() {
     };
   } catch (error) {
     // Log the real cause server-side only; never return it in the HTTP body.
-    console.error("Health check redis failure:", error);
+    logger.error({ err: error }, "Health check redis failure");
 
     return {
       status: "error",

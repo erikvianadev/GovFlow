@@ -7,14 +7,16 @@ integrations such as Jira.
 
 ## Current Status
 
-Sprint 6.4.3 - Remote-Assisted Jira Deduplication completed.
+Sprint 6.6 - Observability & Logging completed.
 
 GovFlow processes workflow executions asynchronously and integrates with the
 real Jira Cloud REST API for `JIRA_COMMENT` and `JIRA_TRANSITION` steps. Recent
 sprints added security hardening (6.4.1), step-level idempotency to avoid
-duplicate external Jira side effects under retries and concurrency (6.4.2), and
-a best-effort remote check during stale-running recovery (6.4.3) that asks Jira
-whether a `JIRA_COMMENT` was already created before recording a false `FAILED`.
+duplicate external Jira side effects under retries and concurrency (6.4.2), a
+best-effort remote check during stale-running recovery (6.4.3) that asks Jira
+whether a `JIRA_COMMENT` was already created before recording a false `FAILED`,
+and structured logging with secret redaction and request/execution correlation
+(6.6).
 
 The current backend includes:
 
@@ -30,7 +32,9 @@ The current backend includes:
 - Admin-only deep health check for dependency status
 - Global error handling (environment-aware responses)
 - Standardized API responses
-- Request logging middleware
+- Structured logging (pino) with `req.id`/`executionId` correlation, an
+  `X-Request-Id` response header, and redaction of `Authorization`/`Cookie`
+  headers and the Jira Basic Auth credential
 - SQL migrations and seeds
 - Audit logs module
 - Departments module
@@ -132,6 +136,10 @@ Create a `.env` file based on `.env.example` when running the API locally.
 ```env
 PORT=3000
 NODE_ENV=development
+
+# Logging level (pino): fatal, error, warn, info, debug, trace, silent.
+# Defaults: info in production, silent under test, debug in development.
+LOG_LEVEL=debug
 
 DB_HOST=localhost
 DB_PORT=5432

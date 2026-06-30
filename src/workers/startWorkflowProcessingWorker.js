@@ -1,18 +1,19 @@
 const { createWorkflowProcessingWorker } = require("./workflowProcessing.worker");
+const logger = require("../config/logger");
 
 async function start() {
-  console.log("Starting workflow processing worker...");
+  logger.info("Starting workflow processing worker...");
 
   const worker = createWorkflowProcessingWorker();
 
-  console.log("Workflow processing worker started.");
+  logger.info("Workflow processing worker started.");
 
   async function shutdown(signal) {
-    console.log(`Received ${signal}. Closing workflow processing worker...`);
+    logger.info({ signal }, "Closing workflow processing worker");
 
     await worker.close();
 
-    console.log("Workflow processing worker closed.");
+    logger.info("Workflow processing worker closed.");
     process.exit(0);
   }
 
@@ -21,6 +22,6 @@ async function start() {
 }
 
 start().catch((error) => {
-  console.error("Failed to start workflow processing worker:", error);
+  logger.error({ err: error }, "Failed to start workflow processing worker");
   process.exit(1);
 });

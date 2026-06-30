@@ -937,6 +937,58 @@ execution creation, execution step listing, asynchronous processing through the
 worker, controlled failures, RBAC, filters, lookup by ID, and audit log
 creation.
 
+## Logging & Observability
+
+Sprint 6.6 replaced ad-hoc `console.*` calls with a single structured logger
+(`pino`) configured in `src/config/logger.js`.
+
+### Levels
+
+The level comes from `LOG_LEVEL`. When unset it defaults by environment:
+`info` in production, `silent` under test (so request logging never interleaves
+with the test runner output), and `debug` in development. In development the
+logger uses the `pino-pretty` transport for human-readable, colorized output;
+production and test emit newline-delimited JSON for log shippers.
+
+### Request correlation
+
+`pino-http` (mounted in `app.js`) assigns every request a `req.id`, logs
+method/route/status/duration automatically, exposes a request-scoped logger as
+`req.log`, and the id is echoed back to the client in the `X-Request-Id`
+response header. `error.middleware.js` logs through `req.log` (falling back to
+the shared logger), so an unhandled error and its originating request share the
+same id.
+
+In the asynchronous layer there is no request, so correlation reuses the
+existing `executionId` rather than inventing a new id: the worker creates a
+`logger.child({ executionId, jobId })`, the Jira step handlers create a
+`logger.child({ executionId, executionStepId, actionType })`, and stale-running
+recovery logs each execution by `executionId`. This matches the project's
+explicit-parameter style (no `AsyncLocalStorage`).
+
+### Secret redaction (two layers)
+
+Logs must never leak the JWT in `Authorization` (every authenticated request) or
+the Jira Basic Auth header (every outbound Jira call):
+
+1. **At the source.** `JiraTechnicalError` no longer stores the raw axios error;
+   `sanitizeAxiosError` (in `jira.errors.js`) keeps only `message`, `code`,
+   `status`, and `responseData`, never `config`/`request`/`headers` where the
+   Authorization header lives. `jira.service.js` also routes `testConnection`
+   and the recovery comment lookup through `normalizeJiraError`, so no raw axios
+   error ever reaches a log.
+2. **At the logger.** `redact` paths mask `req.headers.authorization`,
+   `req.headers.cookie`, and `res.headers["set-cookie"]` for anything logged
+   through the request serializer (notably `pino-http` logging `req.headers`).
+
+### Operational logs vs audit logs
+
+The structured logger (stdout) is for live debug/observability — stack traces,
+timing, correlation. It does **not** replace the audit log: business events such
+as `JIRA_COMMENT_ATTEMPTED/COMPLETED/FAILED` and execution recovery remain
+recorded in Postgres via `safeRegisterAuditLog`. The two have different
+purposes and audiences and are kept separate.
+
 ## Current Trade-offs
 
 ### SQL Instead of ORM
@@ -1005,16 +1057,13 @@ Future evolution:
 - Notification dispatch
 - Step execution logs
 
-### Console Logging
+### Structured Logging
 
-The project currently uses `console.log` for request logging.
-
-Reasons:
-
-- Simple development observability.
-- No premature logging infrastructure.
-
-A structured logger or OpenTelemetry may be introduced later.
+Resolved in Sprint 6.6: request and operational logging moved from `console.*`
+to a structured `pino` logger with level control, request correlation
+(`req.id` / `executionId`), and secret redaction. See
+[Logging & Observability](#logging--observability). OpenTelemetry / metrics
+export remain future work.
 
 ## Future Architecture Evolution
 

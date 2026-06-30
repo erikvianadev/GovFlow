@@ -1,4 +1,5 @@
 const env = require("../config/env");
+const logger = require("../config/logger");
 const { errorResponse } = require("../utils/apiResponse");
 
 function errorMiddleware(error, req, res, next) {
@@ -41,7 +42,12 @@ function errorMiddleware(error, req, res, next) {
       : undefined;
 
   // Always log the full error server-side; this never reaches the client.
-  console.error(error);
+  // req.log is set by pino-http and is already correlated with this request's
+  // req.id. Fall back to the shared logger if it is ever missing (e.g. an error
+  // raised outside the normal middleware chain, or a direct unit-test call).
+  const log = req.log || logger;
+
+  log.error({ err: error }, "Unhandled error");
 
   return errorResponse(res, {
     statusCode,

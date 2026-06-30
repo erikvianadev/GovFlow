@@ -1,5 +1,6 @@
 const jiraService = require("../jira/jira.service");
 const { JiraBusinessError } = require("../jira/jira.errors");
+const logger = require("../../config/logger");
 const { safeRegisterAuditLog } = require("../../utils/safeAuditLog");
 const {
   validateJiraCommentConfiguration,
@@ -98,6 +99,11 @@ function buildJiraCommentAuditMetadata({ step, execution }) {
 
 async function handleJiraTransitionStep({ step, execution }) {
   const auditMetadata = buildJiraTransitionAuditMetadata({ step, execution });
+  const log = logger.child({
+    executionId: auditMetadata.executionId,
+    executionStepId: step.id,
+    actionType: "JIRA_TRANSITION",
+  });
 
   await safeRegisterAuditLog({
     action: "JIRA_TRANSITION_ATTEMPTED",
@@ -106,6 +112,8 @@ async function handleJiraTransitionStep({ step, execution }) {
     actorId: execution?.started_by || null,
     metadata: auditMetadata,
   });
+
+  log.info("Handling JIRA_TRANSITION step");
 
   try {
     const validationErrors = validateJiraTransitionConfiguration(
@@ -135,6 +143,8 @@ async function handleJiraTransitionStep({ step, execution }) {
       },
     });
 
+    log.info("JIRA_TRANSITION step completed");
+
     return {
       status: "COMPLETED",
       output: {
@@ -146,6 +156,8 @@ async function handleJiraTransitionStep({ step, execution }) {
       },
     };
   } catch (error) {
+    log.error({ err: error }, "JIRA_TRANSITION step failed");
+
     await safeRegisterAuditLog({
       action: "JIRA_TRANSITION_FAILED",
       entity: "workflow_execution_step",
@@ -160,6 +172,11 @@ async function handleJiraTransitionStep({ step, execution }) {
 
 async function handleJiraCommentStep({ step, execution }) {
   const auditMetadata = buildJiraCommentAuditMetadata({ step, execution });
+  const log = logger.child({
+    executionId: auditMetadata.executionId,
+    executionStepId: step.id,
+    actionType: "JIRA_COMMENT",
+  });
 
   await safeRegisterAuditLog({
     action: "JIRA_COMMENT_ATTEMPTED",
@@ -168,6 +185,8 @@ async function handleJiraCommentStep({ step, execution }) {
     actorId: execution?.started_by || null,
     metadata: auditMetadata,
   });
+
+  log.info("Handling JIRA_COMMENT step");
 
   try {
     const validationErrors = validateJiraCommentConfiguration(step.configuration);
@@ -195,6 +214,8 @@ async function handleJiraCommentStep({ step, execution }) {
       metadata: auditMetadata,
     });
 
+    log.info("JIRA_COMMENT step completed");
+
     return {
       status: "COMPLETED",
       output: {
@@ -206,6 +227,8 @@ async function handleJiraCommentStep({ step, execution }) {
       },
     };
   } catch (error) {
+    log.error({ err: error }, "JIRA_COMMENT step failed");
+
     await safeRegisterAuditLog({
       action: "JIRA_COMMENT_FAILED",
       entity: "workflow_execution_step",

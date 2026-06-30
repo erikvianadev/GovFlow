@@ -1,6 +1,7 @@
 const AppError = require("../../errors/AppError");
 const database = require("../../config/database");
 const env = require("../../config/env");
+const logger = require("../../config/logger");
 const workflowExecutionsRepository = require("../workflow-executions/workflowExecutions.repository");
 const workflowExecutionStepsRepository = require("../workflow-execution-steps/workflowExecutionSteps.repository");
 const jiraService = require("../jira/jira.service");
@@ -109,6 +110,14 @@ async function recoverStaleRunningExecutions({
     timeoutMinutes: resolvedTimeoutMinutes,
     limit: resolvedLimit,
   });
+
+  logger.info(
+    {
+      scannedCount: staleExecutions.length,
+      timeoutMinutes: resolvedTimeoutMinutes,
+    },
+    "Stale-running recovery scan started"
+  );
 
   const recoveredExecutions = [];
 
@@ -225,6 +234,15 @@ async function recoverStaleRunningExecutions({
       throw error;
     }
 
+    logger.info(
+      {
+        executionId: recoveryResult.execution.id,
+        failedRunningStepsCount: recoveryResult.failedSteps.length,
+        recoveredRunningStepsCount: recoveryResult.recoveredSteps.length,
+      },
+      "Stale-running execution recovered"
+    );
+
     await safeRegisterAuditLog({
       action: "WORKFLOW_EXECUTION_RECOVERY_FAILED",
       entity: "workflow_execution",
@@ -264,6 +282,14 @@ async function recoverStaleRunningExecutions({
       recoveryReason: RECOVERY_REASON,
     });
   }
+
+  logger.info(
+    {
+      scannedCount: staleExecutions.length,
+      recoveredCount: recoveredExecutions.length,
+    },
+    "Stale-running recovery scan finished"
+  );
 
   return {
     timeoutMinutes: resolvedTimeoutMinutes,
