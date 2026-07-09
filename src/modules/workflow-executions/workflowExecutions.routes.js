@@ -9,9 +9,9 @@ const router = Router({ mergeParams: true });
 
 router.post(
   "/",
-  mutatingRateLimiter,
   authMiddleware,
   roleMiddleware(["ADMIN", "MANAGER", "OPERATOR"]),
+  mutatingRateLimiter,
   workflowExecutionsController.create
 );
 
