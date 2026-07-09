@@ -7,7 +7,7 @@ integrations such as Jira.
 
 ## Current Status
 
-Sprint 6.6 - Observability & Logging completed.
+Sprint 6.7 - Queue Dashboard / Admin Visibility completed.
 
 GovFlow processes workflow executions asynchronously and integrates with the
 real Jira Cloud REST API for `JIRA_COMMENT` and `JIRA_TRANSITION` steps. Recent
@@ -15,8 +15,9 @@ sprints added security hardening (6.4.1), step-level idempotency to avoid
 duplicate external Jira side effects under retries and concurrency (6.4.2), a
 best-effort remote check during stale-running recovery (6.4.3) that asks Jira
 whether a `JIRA_COMMENT` was already created before recording a false `FAILED`,
-and structured logging with secret redaction and request/execution correlation
-(6.6).
+structured logging with secret redaction and request/execution correlation
+(6.6), and an ADMIN-only queue dashboard for operational visibility into
+BullMQ job state, with guarded retry and delete (6.7).
 
 The current backend includes:
 
@@ -68,6 +69,8 @@ The current backend includes:
 - Workflow status lifecycle
 - Step-level execution tracking
 - Failure handling for workflow processing
+- ADMIN-only queue dashboard (stats, paginated job listing, guarded retry and
+  delete) for BullMQ operational visibility
 - Pagination and filters
 - Input validation
 - Automated tests
@@ -404,6 +407,10 @@ Protected routes use role-based access control.
 | `POST /workflow-executions/:id/process` | ADMIN, MANAGER |
 | `GET /health/deep` | ADMIN |
 | `GET /jira/test-connection` | ADMIN |
+| `GET /admin/queue/stats` | ADMIN |
+| `GET /admin/queue/jobs` | ADMIN |
+| `POST /admin/queue/jobs/:jobId/retry` | ADMIN |
+| `DELETE /admin/queue/jobs/:jobId` | ADMIN |
 
 ## Authentication
 

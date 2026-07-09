@@ -28,6 +28,10 @@ const workflowProcessingQueueServicePath = path.join(
   __dirname,
   "../src/modules/workflow-processing/workflowProcessingQueue.service.js"
 );
+const adminQueueServicePath = path.join(
+  __dirname,
+  "../src/modules/admin/adminQueue.service.js"
+);
 const authMiddlewarePath = path.join(
   __dirname,
   "../src/middlewares/auth.middleware.js"
@@ -87,6 +91,7 @@ async function withTestServer(callback, { serviceImpl } = {}) {
     workflowProcessingJobServicePath,
     workflowProcessorRoutesPath,
     workflowProcessingQueueServicePath,
+    adminQueueServicePath,
     authMiddlewarePath,
     usersRepositoryPath,
   ].forEach((modulePath) => delete require.cache[modulePath]);
@@ -96,6 +101,12 @@ async function withTestServer(callback, { serviceImpl } = {}) {
   });
   mockModule(workflowProcessingQueueServicePath, {
     enqueueWorkflowExecutionProcessing: async () => ({}),
+  });
+  mockModule(adminQueueServicePath, {
+    getQueueStats: async () => ({}),
+    listJobs: async () => ({}),
+    retryJob: async () => ({}),
+    deleteJob: async () => ({}),
   });
   mockModule(workflowProcessingJobServicePath, {
     getWorkflowExecutionProcessingJobStatus: async (id) => {
