@@ -378,6 +378,36 @@ npm run workflow:recover-stale
 The endpoint is ADMIN-only. The script uses the same service path and is meant
 for manual operational recovery.
 
+## Queue Dashboard
+
+Expõe a fila do BullMQ como recurso REST via `/admin/queue/...`.
+Todas as rotas são ADMIN-only.
+
+Ordem de middleware nas rotas mutáveis (retry/delete):
+`auth -> role -> rate limit`. Rate-limiting antes de autenticar
+abriria uma negação de serviço: um atacante sem token poderia
+esgotar o limite do IP e bloquear o ADMIN legítimo.
+
+Retry simples: `job.retry()` recoloca um job `failed` em `waiting`.
+O worker reprocessará. Se a execution já está `FAILED` no banco,
+o processor rejeita a nova tentativa — comportamento correto.
+O retry simples não reverte executions já terminadas no banco.
+Para reiniciar uma execution `FAILED` é necessário criar uma nova.
+
+Delete: restrito a `DELETABLE_STATES = ["completed", "failed"]`.
+Jobs `active` ou `waiting` não podem ser removidos — o worker pode
+estar processando o job agora, e removê-lo produziria
+comportamento indefinido no worker e estado órfão no banco.
+
+Endpoints:
+
+```txt
+GET    /admin/queue/stats
+GET    /admin/queue/jobs?state=&page=&limit=
+POST   /admin/queue/jobs/:jobId/retry
+DELETE /admin/queue/jobs/:jobId
+```
+
 ## Workflow Step Handlers
 
 Workflow step processing is routed through internal handlers. `JIRA_COMMENT`
