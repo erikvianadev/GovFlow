@@ -151,6 +151,30 @@ test("express.json rejects bodies larger than 100kb", async () => {
   });
 });
 
+test("rate-limited authenticated routes reject unauthenticated requests before applying the rate limiter", async () => {
+  await withTestServer(async ({ baseUrl }) => {
+    // ADMIN_RATE_LIMIT_MAX defaults to 20. If the rate limiter ran before
+    // authMiddleware, the 21st unauthenticated request would return 429
+    // instead of 401, letting an unauthenticated attacker exhaust the
+    // per-IP limit and lock out legitimate admins.
+    const statuses = [];
+
+    for (let attempt = 0; attempt < 21; attempt += 1) {
+      const response = await fetch(
+        `${baseUrl}/workflow-executions/recovery/stale-running`,
+        { method: "POST" }
+      );
+
+      statuses.push(response.status);
+    }
+
+    assert.ok(
+      statuses.every((status) => status === 401),
+      `expected all 21 unauthenticated attempts to be 401, got ${statuses}`
+    );
+  });
+});
+
 test("login endpoint is rate limited per IP", async () => {
   await withTestServer(
     async ({ baseUrl }) => {

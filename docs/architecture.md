@@ -866,6 +866,24 @@ from the database and verify `is_active`.
 This allows the system to block inactive users even if they still have a valid
 token.
 
+### Middleware Order on Authenticated Routes
+
+Authenticated routes apply middleware in this order:
+
+```txt
+authMiddleware -> roleMiddleware -> rateLimiter -> controller
+```
+
+Running the rate limiter before authentication would let an unauthenticated
+attacker exhaust the per-IP limit and deny access to legitimate users, since
+the limiter would throttle by IP rather than by verified caller. Auth and
+authorization must run first so the limiter only applies to already-verified
+traffic.
+
+The one intentional exception is `POST /auth/login`, where `loginRateLimiter`
+runs before there is any authenticated caller to check — the endpoint is
+anonymous by definition, so the limiter is the only defense available there.
+
 ### Error Handling
 
 Invalid email and invalid password return the same message:

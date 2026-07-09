@@ -12,17 +12,17 @@ const router = Router();
 
 router.post(
   "/workflow-executions/:id/process",
-  workflowProcessingRateLimiter,
   authMiddleware,
   roleMiddleware(["ADMIN", "MANAGER"]),
+  workflowProcessingRateLimiter,
   workflowProcessorController.process
 );
 
 router.post(
   "/workflow-executions/:id/enqueue",
-  workflowProcessingRateLimiter,
   authMiddleware,
   roleMiddleware(["ADMIN", "MANAGER"]),
+  workflowProcessingRateLimiter,
   workflowProcessingQueueController.enqueue
 );
 

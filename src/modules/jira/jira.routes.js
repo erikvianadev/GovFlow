@@ -9,9 +9,9 @@ const router = Router();
 
 router.get(
   "/test-connection",
-  jiraRateLimiter,
   authMiddleware,
   roleMiddleware(["ADMIN"]),
+  jiraRateLimiter,
   jiraController.testConnection
 );
 

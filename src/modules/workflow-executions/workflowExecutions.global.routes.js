@@ -23,9 +23,9 @@ router.use("/:executionId/steps", workflowExecutionStepsRoutes);
 
 router.post(
   "/recovery/stale-running",
-  adminOperationsRateLimiter,
   authMiddleware,
   roleMiddleware(["ADMIN"]),
+  adminOperationsRateLimiter,
   workflowExecutionRecoveryController.recoverStaleRunning
 );
 

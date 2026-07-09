@@ -21,9 +21,9 @@ router.get(
 );
 router.post(
   "/",
-  mutatingRateLimiter,
   authMiddleware,
   roleMiddleware(["ADMIN"]),
+  mutatingRateLimiter,
   usersController.create
 );
 
