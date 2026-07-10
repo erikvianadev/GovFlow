@@ -257,3 +257,59 @@ test("trustProxyHops falls back to 0 for negative or non-integer values", () => 
   assert.match(loadTrustProxyHops({ TRUST_PROXY_HOPS: "1.5" }), /HOPS=0$/);
   assert.match(loadTrustProxyHops({ TRUST_PROXY_HOPS: "abc" }), /HOPS=0$/);
 });
+
+test("env fails fast when JIRA_ENABLED=true and JIRA_API_TOKEN is missing", () => {
+  const result = loadEnv({
+    override: {
+      JIRA_ENABLED: "true",
+      JIRA_BASE_URL: "https://govflow.atlassian.net",
+      JIRA_EMAIL: "admin@govflow.test",
+    },
+    remove: ["JIRA_API_TOKEN"],
+  });
+
+  assert.notStrictEqual(result.status, 0);
+  assert.match(
+    result.stderr,
+    /Missing required environment variable: JIRA_API_TOKEN/
+  );
+});
+
+test("env fails fast when JIRA_ENABLED=true and JIRA_API_TOKEN is empty", () => {
+  const result = loadEnv({
+    override: {
+      JIRA_ENABLED: "true",
+      JIRA_BASE_URL: "https://govflow.atlassian.net",
+      JIRA_EMAIL: "admin@govflow.test",
+      JIRA_API_TOKEN: "   ",
+    },
+  });
+
+  assert.notStrictEqual(result.status, 0);
+  assert.match(
+    result.stderr,
+    /Missing required environment variable: JIRA_API_TOKEN/
+  );
+});
+
+test("env loads successfully when JIRA_ENABLED=true and all Jira variables are present", () => {
+  const result = loadEnv({
+    override: {
+      JIRA_ENABLED: "true",
+      JIRA_BASE_URL: "https://govflow.atlassian.net",
+      JIRA_EMAIL: "admin@govflow.test",
+      JIRA_API_TOKEN: "jira-token",
+    },
+  });
+
+  assert.strictEqual(result.status, 0, result.stderr);
+});
+
+test("env loads successfully when JIRA_ENABLED=false even if Jira variables are missing", () => {
+  const result = loadEnv({
+    override: { JIRA_ENABLED: "false" },
+    remove: ["JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_API_TOKEN"],
+  });
+
+  assert.strictEqual(result.status, 0, result.stderr);
+});

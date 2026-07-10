@@ -317,7 +317,10 @@ Idempotency and retries:
 This is local idempotency based on persisted output, not an absolute delivery
 guarantee against Jira. See
 [`docs/jira-idempotency.md`](docs/jira-idempotency.md) for the full design,
-step lifecycle, audit reasons, and known residual risks.
+step lifecycle, audit reasons, and known residual risks. See
+[`docs/jira-errors.md`](docs/jira-errors.md) for what each Jira error status
+means for an operator and when GovFlow retries automatically versus needing
+manual action.
 
 Retry strategy:
 

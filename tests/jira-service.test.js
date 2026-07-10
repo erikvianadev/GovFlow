@@ -240,7 +240,14 @@ test("transitionIssue treats disabled Jira as business failure", async () => {
   );
 });
 
-test("transitionIssue maps 400, 401, 403, and 404 to business failures", async () => {
+test("transitionIssue maps 400, 401, 403, and 404 to business failures with status-specific messages", async () => {
+  const expectedMessageByStatus = {
+    400: "Jira rejected the transition request as a bad request (status 400): check the request payload",
+    401: "Jira rejected the transition request: invalid or expired Jira credentials (status 401)",
+    403: "Jira rejected the transition request: credentials are valid but lack permission for this project/resource (status 403)",
+    404: "Jira rejected the transition request: resource not found (status 404)",
+  };
+
   for (const status of [400, 401, 403, 404]) {
     const { service } = loadService({
       post: async () => {
@@ -261,7 +268,7 @@ test("transitionIssue maps 400, 401, 403, and 404 to business failures", async (
         error.name === "JiraBusinessError" &&
         error.statusCode === status &&
         error.isBusinessFailure === true &&
-        error.message === `Jira rejected transition request with status ${status}`
+        error.message === expectedMessageByStatus[status]
     );
   }
 });
