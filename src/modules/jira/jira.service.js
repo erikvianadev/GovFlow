@@ -187,14 +187,29 @@ function assertJiraIntegrationReady() {
   }
 }
 
+// Maps the 4xx statuses Jira returns for a rejected request to a message that
+// tells the operator (or on-call reading logs) what actually went wrong,
+// rather than a single "status N" string that reads the same whether the
+// token is wrong (401) or just under-scoped (403). statusCode and
+// JiraBusinessError semantics are unchanged; only the message differs.
+const JIRA_BUSINESS_ERROR_MESSAGE_BY_STATUS = {
+  400: (operation) =>
+    `Jira rejected the ${operation} request as a bad request (status 400): check the request payload`,
+  401: (operation) =>
+    `Jira rejected the ${operation} request: invalid or expired Jira credentials (status 401)`,
+  403: (operation) =>
+    `Jira rejected the ${operation} request: credentials are valid but lack permission for this project/resource (status 403)`,
+  404: (operation) =>
+    `Jira rejected the ${operation} request: resource not found (status 404)`,
+};
+
 function normalizeJiraError(error, operation) {
   const status = error.response?.status;
 
-  if ([400, 401, 403, 404].includes(status)) {
-    return new JiraBusinessError(
-      `Jira rejected ${operation} request with status ${status}`,
-      status
-    );
+  const buildMessage = JIRA_BUSINESS_ERROR_MESSAGE_BY_STATUS[status];
+
+  if (buildMessage) {
+    return new JiraBusinessError(buildMessage(operation), status);
   }
 
   if (status === 429 || status >= 500 || error.code || !error.response) {
