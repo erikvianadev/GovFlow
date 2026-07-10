@@ -112,7 +112,26 @@ function resolveRedisPassword(nodeEnv) {
   return hasPassword ? password : undefined;
 }
 
+// When Jira integration is enabled, the base URL, account email, and API
+// token are mandatory (the client cannot authenticate without them). Boot
+// fails fast citing exactly which variable is missing, the same way
+// resolveRedisPassword fails fast when a conditionally-required setting is
+// absent. When Jira is disabled, these variables remain optional.
+function validateJiraConfig() {
+  const jiraEnabled = process.env.JIRA_ENABLED === "true";
+
+  if (!jiraEnabled) {
+    return;
+  }
+
+  requireEnv("JIRA_BASE_URL");
+  requireEnv("JIRA_EMAIL");
+  requireEnv("JIRA_API_TOKEN");
+}
+
 const nodeEnv = resolveNodeEnv(); // Validated NODE_ENV with a safe default
+
+validateJiraConfig(); // Fails fast if Jira is enabled but misconfigured
 
 // Export the environment configuration as an object
 const env = {
