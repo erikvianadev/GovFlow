@@ -50,8 +50,22 @@ const create = asyncHandler(async (req, res) => {
   });
 });
 
+const update = asyncHandler(async (req, res) => {
+  const workflow = await workflowsService.updateWorkflow(
+    req.params.id,
+    { isActive: req.body.is_active },
+    req.user
+  );
+
+  return successResponse(res, {
+    message: "Workflow updated successfully",
+    data: workflow,
+  });
+});
+
 module.exports = {
   list,
   getById,
   create,
+  update,
 };

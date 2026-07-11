@@ -133,10 +133,35 @@ async function create({
   return result.rows[0];
 }
 
+async function update({ id, isActive }) {
+  const result = await database.query(
+    `
+      UPDATE workflows
+      SET
+        is_active = $2,
+        updated_at = NOW()
+      WHERE id = $1
+      RETURNING
+        id,
+        name,
+        description,
+        department_id,
+        created_by,
+        is_active,
+        created_at,
+        updated_at
+    `,
+    [id, isActive]
+  );
+
+  return result.rows[0];
+}
+
 module.exports = {
   findAll,
   countAll,
   findById,
   create,
+  update,
   buildWorkflowsFiltersQuery,
 };

@@ -32,4 +32,11 @@ router.get(
   workflowsController.getById
 );
 
+router.patch(
+  "/:id",
+  authMiddleware,
+  roleMiddleware(["ADMIN", "MANAGER"]),
+  workflowsController.update
+);
+
 module.exports = router;

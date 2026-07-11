@@ -9,6 +9,7 @@ const {
 } = require("./workflowsAccess");
 const {
   validateCreateWorkflow,
+  validateUpdateWorkflow,
   validateListWorkflowsFilters,
   validateWorkflowId,
 } = require("../../validators/workflows.validator");
@@ -183,8 +184,48 @@ async function createWorkflow({
   }
 }
 
+async function updateWorkflow(id, { isActive }, requester) {
+  const idValidationErrors = validateWorkflowId(id);
+
+  if (idValidationErrors.length > 0) {
+    throw new AppError("Invalid workflow ID", 400, idValidationErrors);
+  }
+
+  const validationErrors = validateUpdateWorkflow({ isActive });
+
+  if (validationErrors.length > 0) {
+    throw new AppError("Validation failed", 400, validationErrors);
+  }
+
+  const workflow = await workflowsRepository.findById(id);
+
+  if (!workflow) {
+    throw new AppError("Workflow not found", 404);
+  }
+
+  // Enforce object-level access before mutating (throws 404 on denial, never
+  // 403 — reuses the same access module as read access, so a MANAGER cannot
+  // distinguish "not yours" from "does not exist").
+  assertCanAccessWorkflow(workflow, requester);
+
+  const updatedWorkflow = await workflowsRepository.update({ id, isActive });
+
+  await safeRegisterAuditLog({
+    action: "WORKFLOW_UPDATED",
+    entity: "workflow",
+    entityId: updatedWorkflow.id,
+    actorId: requester && requester.id,
+    metadata: {
+      isActive: updatedWorkflow.is_active,
+    },
+  });
+
+  return updatedWorkflow;
+}
+
 module.exports = {
   listWorkflows,
   getWorkflowById,
   createWorkflow,
+  updateWorkflow,
 };

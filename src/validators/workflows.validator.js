@@ -18,6 +18,14 @@ function validateListWorkflowsFilters(filters) {
   return errors;
 }
 
+function validateUpdateWorkflow(payload) {
+  const errors = [];
+
+  validateIsActive(payload.isActive, errors);
+
+  return errors;
+}
+
 function validateWorkflowId(id) {
   if (isValidUuid(id)) {
     return [];
@@ -85,6 +93,23 @@ function validateDescription(description, errors) {
   }
 }
 
+function validateIsActive(isActive, errors) {
+  if (isActive === undefined || isActive === null) {
+    errors.push({
+      field: "is_active",
+      message: "is_active is required",
+    });
+    return;
+  }
+
+  if (typeof isActive !== "boolean") {
+    errors.push({
+      field: "is_active",
+      message: "is_active must be a boolean",
+    });
+  }
+}
+
 function validateOptionalBooleanString(value, field, errors) {
   if (value === undefined || value === null || value === "") {
     return;
@@ -128,6 +153,7 @@ function isValidUuid(value) {
 
 module.exports = {
   validateCreateWorkflow,
+  validateUpdateWorkflow,
   validateListWorkflowsFilters,
   validateWorkflowId,
 };
