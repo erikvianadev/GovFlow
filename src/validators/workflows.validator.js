@@ -156,4 +156,5 @@ module.exports = {
   validateUpdateWorkflow,
   validateListWorkflowsFilters,
   validateWorkflowId,
+  validateName,
 };

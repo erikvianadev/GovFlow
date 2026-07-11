@@ -210,3 +210,211 @@ test("updateWorkflow throws 400 for a malformed workflow id", async () => {
   assert.strictEqual(calls.findByIdArg, null);
   assert.strictEqual(calls.updatePayload, null);
 });
+
+// --- duplicateWorkflow -----------------------------------------------------
+
+function loadServiceForDuplicate({
+  workflow = {
+    id: validWorkflowId,
+    name: "Original workflow",
+    description: "Original description",
+    department_id: departmentA,
+    is_active: true,
+  },
+  duplicateImpl,
+} = {}) {
+  const calls = {
+    findByIdArg: null,
+    duplicatePayload: null,
+    auditPayload: null,
+  };
+
+  [servicePath, workflowsRepositoryPath, safeAuditLogPath].forEach(
+    (modulePath) => delete require.cache[modulePath]
+  );
+
+  mockModule(workflowsRepositoryPath, {
+    findById: async (id) => {
+      calls.findByIdArg = id;
+      return workflow;
+    },
+    duplicate: async (payload) => {
+      calls.duplicatePayload = payload;
+
+      if (duplicateImpl) {
+        return duplicateImpl(payload);
+      }
+
+      return {
+        id: "new-workflow-1",
+        name: payload.name,
+        description: payload.description,
+        department_id: payload.departmentId,
+        created_by: payload.createdBy,
+        is_active: false,
+      };
+    },
+  });
+  mockModule(safeAuditLogPath, {
+    safeRegisterAuditLog: async (payload) => {
+      calls.auditPayload = payload;
+    },
+  });
+
+  return {
+    service: require(servicePath),
+    calls,
+  };
+}
+
+test("duplicateWorkflow copies the source workflow's department, defaults the name to '<original> (copy)', is inactive, and registers an audit log", async () => {
+  const { service, calls } = loadServiceForDuplicate();
+
+  const result = await service.duplicateWorkflow(
+    validWorkflowId,
+    {},
+    { id: validUserId, role: "ADMIN" }
+  );
+
+  assert.strictEqual(calls.findByIdArg, validWorkflowId);
+  assert.deepStrictEqual(calls.duplicatePayload, {
+    sourceWorkflowId: validWorkflowId,
+    name: "Original workflow (copy)",
+    description: "Original description",
+    departmentId: departmentA,
+    createdBy: validUserId,
+  });
+  assert.strictEqual(result.is_active, false);
+  assert.strictEqual(result.department_id, departmentA);
+  assert.deepStrictEqual(calls.auditPayload, {
+    action: "WORKFLOW_DUPLICATED",
+    entity: "workflow",
+    entityId: "new-workflow-1",
+    actorId: validUserId,
+    metadata: {
+      sourceWorkflowId: validWorkflowId,
+      newWorkflowId: "new-workflow-1",
+    },
+  });
+});
+
+test("duplicateWorkflow uses body.name when provided, instead of the default '(copy)' name", async () => {
+  const { service, calls } = loadServiceForDuplicate();
+
+  await service.duplicateWorkflow(
+    validWorkflowId,
+    { name: "Custom name" },
+    { id: validUserId, role: "ADMIN" }
+  );
+
+  assert.strictEqual(calls.duplicatePayload.name, "Custom name");
+});
+
+test("duplicateWorkflow throws 400 (not a raw DB error) when the default '<name> (copy)' exceeds 150 characters", async () => {
+  const longName = "A".repeat(150);
+  const { service, calls } = loadServiceForDuplicate({
+    workflow: {
+      id: validWorkflowId,
+      name: longName,
+      description: "Original description",
+      department_id: departmentA,
+      is_active: true,
+    },
+  });
+
+  await assert.rejects(
+    service.duplicateWorkflow(
+      validWorkflowId,
+      {},
+      { id: validUserId, role: "ADMIN" }
+    ),
+    (error) =>
+      error.statusCode === 400 &&
+      error.message === "Validation failed" &&
+      error.errors.some(
+        (item) =>
+          item.field === "name" &&
+          item.message === "Name must be at most 150 characters"
+      )
+  );
+
+  assert.strictEqual(calls.duplicatePayload, null);
+  assert.strictEqual(calls.auditPayload, null);
+});
+
+test("duplicateWorkflow allows a MANAGER to duplicate a workflow within their own department", async () => {
+  const { service, calls } = loadServiceForDuplicate({
+    workflow: {
+      id: validWorkflowId,
+      name: "Original workflow",
+      description: null,
+      department_id: departmentA,
+      is_active: true,
+    },
+  });
+
+  const result = await service.duplicateWorkflow(
+    validWorkflowId,
+    {},
+    { id: validUserId, role: "MANAGER", department_id: departmentA }
+  );
+
+  assert.strictEqual(result.is_active, false);
+  assert.notStrictEqual(calls.duplicatePayload, null);
+});
+
+test("duplicateWorkflow throws 404 'Workflow not found' when the source workflow does not exist", async () => {
+  const { service, calls } = loadServiceForDuplicate({ workflow: null });
+
+  await assert.rejects(
+    service.duplicateWorkflow(
+      validWorkflowId,
+      {},
+      { id: validUserId, role: "ADMIN" }
+    ),
+    (error) => error.statusCode === 404 && error.message === "Workflow not found"
+  );
+
+  assert.strictEqual(calls.duplicatePayload, null);
+  assert.strictEqual(calls.auditPayload, null);
+});
+
+test("duplicateWorkflow throws 404 (not 403) when a MANAGER targets another department's workflow, and never starts the duplication", async () => {
+  const { service, calls } = loadServiceForDuplicate({
+    workflow: {
+      id: validWorkflowId,
+      name: "Original workflow",
+      description: null,
+      department_id: departmentA,
+      is_active: true,
+    },
+  });
+
+  await assert.rejects(
+    service.duplicateWorkflow(
+      validWorkflowId,
+      {},
+      { id: validUserId, role: "MANAGER", department_id: departmentB }
+    ),
+    (error) => error.statusCode === 404 && error.message === "Workflow not found"
+  );
+
+  assert.strictEqual(calls.duplicatePayload, null);
+  assert.strictEqual(calls.auditPayload, null);
+});
+
+test("duplicateWorkflow throws 400 for a malformed workflow id", async () => {
+  const { service, calls } = loadServiceForDuplicate();
+
+  await assert.rejects(
+    service.duplicateWorkflow(
+      "not-a-uuid",
+      {},
+      { id: validUserId, role: "ADMIN" }
+    ),
+    (error) => error.statusCode === 400 && error.message === "Invalid workflow ID"
+  );
+
+  assert.strictEqual(calls.findByIdArg, null);
+  assert.strictEqual(calls.duplicatePayload, null);
+});

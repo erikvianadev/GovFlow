@@ -39,4 +39,11 @@ router.patch(
   workflowsController.update
 );
 
+router.post(
+  "/:id/duplicate",
+  authMiddleware,
+  roleMiddleware(["ADMIN", "MANAGER"]),
+  workflowsController.duplicate
+);
+
 module.exports = router;

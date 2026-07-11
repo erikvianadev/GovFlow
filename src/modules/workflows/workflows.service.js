@@ -12,6 +12,7 @@ const {
   validateUpdateWorkflow,
   validateListWorkflowsFilters,
   validateWorkflowId,
+  validateName,
 } = require("../../validators/workflows.validator");
 
 async function listWorkflows({
@@ -223,9 +224,78 @@ async function updateWorkflow(id, { isActive }, requester) {
   return updatedWorkflow;
 }
 
+async function duplicateWorkflow(id, { name } = {}, requester) {
+  const idValidationErrors = validateWorkflowId(id);
+
+  if (idValidationErrors.length > 0) {
+    throw new AppError("Invalid workflow ID", 400, idValidationErrors);
+  }
+
+  const sourceWorkflow = await workflowsRepository.findById(id);
+
+  if (!sourceWorkflow) {
+    throw new AppError("Workflow not found", 404);
+  }
+
+  // Enforce object-level access on the ORIGINAL workflow before starting the
+  // duplication (throws 404, never 403 — same fail-closed rule as read/update
+  // access, so a MANAGER cannot distinguish "not yours" from "does not
+  // exist", and the duplication never begins for a denied requester).
+  assertCanAccessWorkflow(sourceWorkflow, requester);
+
+  if (!requester || !requester.id) {
+    throw new AppError("Authenticated user is required", 401);
+  }
+
+  const providedName =
+    typeof name === "string" && name.trim().length > 0 ? name.trim() : null;
+  const duplicateName = providedName || `${sourceWorkflow.name} (copy)`;
+
+  // The final name — whether it came from body.name or from appending
+  // " (copy)" to the source name — must still respect the same 150-char
+  // limit enforced on create/update (workflows.name is VARCHAR(150)).
+  // Reusing validateName (the same helper validateCreateWorkflow uses) keeps
+  // this a single source of truth for "what makes a workflow name valid"
+  // instead of duplicating the length rule here. Without this check, a chain
+  // of duplications (each appending " (copy)") eventually produces a name
+  // Postgres rejects with a raw column-length error, which would surface as
+  // an unhandled 500 instead of an operational 400.
+  const nameValidationErrors = [];
+  validateName(duplicateName, nameValidationErrors);
+
+  if (nameValidationErrors.length > 0) {
+    throw new AppError("Validation failed", 400, nameValidationErrors);
+  }
+
+  // The duplicate always inherits the source workflow's department — there is
+  // no field for the caller to target a different department here (unlike
+  // createWorkflow, which accepts an explicit departmentId).
+  const duplicatedWorkflow = await workflowsRepository.duplicate({
+    sourceWorkflowId: sourceWorkflow.id,
+    name: duplicateName,
+    description: sourceWorkflow.description,
+    departmentId: sourceWorkflow.department_id,
+    createdBy: requester.id,
+  });
+
+  await safeRegisterAuditLog({
+    action: "WORKFLOW_DUPLICATED",
+    entity: "workflow",
+    entityId: duplicatedWorkflow.id,
+    actorId: requester.id,
+    metadata: {
+      sourceWorkflowId: sourceWorkflow.id,
+      newWorkflowId: duplicatedWorkflow.id,
+    },
+  });
+
+  return duplicatedWorkflow;
+}
+
 module.exports = {
   listWorkflows,
   getWorkflowById,
   createWorkflow,
   updateWorkflow,
+  duplicateWorkflow,
 };
