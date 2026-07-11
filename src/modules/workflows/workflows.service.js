@@ -3,9 +3,16 @@ const workflowsRepository = require("./workflows.repository");
 const departmentsRepository = require("../departments/departments.repository");
 const { safeRegisterAuditLog } = require("../../utils/safeAuditLog");
 const {
+  assertCanAccessWorkflow,
+  assertCanCreateInDepartment,
+  resolveListDepartmentScope,
+} = require("./workflowsAccess");
+const {
   validateCreateWorkflow,
+  validateUpdateWorkflow,
   validateListWorkflowsFilters,
   validateWorkflowId,
+  validateName,
 } = require("../../validators/workflows.validator");
 
 async function listWorkflows({
@@ -14,6 +21,7 @@ async function listWorkflows({
   departmentId,
   createdBy,
   isActive,
+  requester,
 }) {
   const validationErrors = validateListWorkflowsFilters({
     departmentId,
@@ -38,6 +46,35 @@ async function listWorkflows({
         : isActive === "true",
   };
 
+  // Object-level scoping: ADMIN lists everything; MANAGER is restricted to
+  // workflows within their own department. A MANAGER without a department
+  // resolves to a null scope and sees an empty result (fail closed). If the
+  // caller also supplied an explicit `departmentId` filter that conflicts
+  // with the requester's own department, the intersection is empty rather
+  // than silently substituting the requester's department — this avoids
+  // both leaking other departments' data and surprising overrides.
+  const departmentScope = resolveListDepartmentScope(requester);
+
+  if (departmentScope.scoped) {
+    if (
+      !departmentScope.departmentId ||
+      (normalizedFilters.departmentId &&
+        normalizedFilters.departmentId !== departmentScope.departmentId)
+    ) {
+      return {
+        items: [],
+        pagination: {
+          page: safePage,
+          limit: safeLimit,
+          total: 0,
+          totalPages: 0,
+        },
+      };
+    }
+
+    normalizedFilters.departmentId = departmentScope.departmentId;
+  }
+
   const [items, total] = await Promise.all([
     workflowsRepository.findAll({
       limit: safeLimit,
@@ -60,7 +97,7 @@ async function listWorkflows({
   };
 }
 
-async function getWorkflowById(id) {
+async function getWorkflowById(id, requester) {
   const validationErrors = validateWorkflowId(id);
 
   if (validationErrors.length > 0) {
@@ -73,6 +110,9 @@ async function getWorkflowById(id) {
     throw new AppError("Workflow not found", 404);
   }
 
+  // Enforce department scope (throws 404 on cross-department access).
+  assertCanAccessWorkflow(workflow, requester);
+
   return workflow;
 }
 
@@ -81,6 +121,7 @@ async function createWorkflow({
   description = null,
   departmentId = null,
   createdBy,
+  requester,
 }) {
   const validationErrors = validateCreateWorkflow({
     name,
@@ -95,6 +136,13 @@ async function createWorkflow({
   if (!createdBy) {
     throw new AppError("Authenticated user is required", 401);
   }
+
+  // Object-level scoping: a MANAGER may only create workflows within their
+  // own department; ADMIN may target any department (including none).
+  // Denial is 404, matching the "Department not found" thrown below for a
+  // genuinely nonexistent department, so a MANAGER cannot distinguish
+  // "not mine" from "does not exist".
+  assertCanCreateInDepartment(departmentId, requester);
 
   const normalizedName = name.trim();
   const normalizedDescription =
@@ -137,8 +185,117 @@ async function createWorkflow({
   }
 }
 
+async function updateWorkflow(id, { isActive }, requester) {
+  const idValidationErrors = validateWorkflowId(id);
+
+  if (idValidationErrors.length > 0) {
+    throw new AppError("Invalid workflow ID", 400, idValidationErrors);
+  }
+
+  const validationErrors = validateUpdateWorkflow({ isActive });
+
+  if (validationErrors.length > 0) {
+    throw new AppError("Validation failed", 400, validationErrors);
+  }
+
+  const workflow = await workflowsRepository.findById(id);
+
+  if (!workflow) {
+    throw new AppError("Workflow not found", 404);
+  }
+
+  // Enforce object-level access before mutating (throws 404 on denial, never
+  // 403 — reuses the same access module as read access, so a MANAGER cannot
+  // distinguish "not yours" from "does not exist").
+  assertCanAccessWorkflow(workflow, requester);
+
+  const updatedWorkflow = await workflowsRepository.update({ id, isActive });
+
+  await safeRegisterAuditLog({
+    action: "WORKFLOW_UPDATED",
+    entity: "workflow",
+    entityId: updatedWorkflow.id,
+    actorId: requester && requester.id,
+    metadata: {
+      isActive: updatedWorkflow.is_active,
+    },
+  });
+
+  return updatedWorkflow;
+}
+
+async function duplicateWorkflow(id, { name } = {}, requester) {
+  const idValidationErrors = validateWorkflowId(id);
+
+  if (idValidationErrors.length > 0) {
+    throw new AppError("Invalid workflow ID", 400, idValidationErrors);
+  }
+
+  const sourceWorkflow = await workflowsRepository.findById(id);
+
+  if (!sourceWorkflow) {
+    throw new AppError("Workflow not found", 404);
+  }
+
+  // Enforce object-level access on the ORIGINAL workflow before starting the
+  // duplication (throws 404, never 403 — same fail-closed rule as read/update
+  // access, so a MANAGER cannot distinguish "not yours" from "does not
+  // exist", and the duplication never begins for a denied requester).
+  assertCanAccessWorkflow(sourceWorkflow, requester);
+
+  if (!requester || !requester.id) {
+    throw new AppError("Authenticated user is required", 401);
+  }
+
+  const providedName =
+    typeof name === "string" && name.trim().length > 0 ? name.trim() : null;
+  const duplicateName = providedName || `${sourceWorkflow.name} (copy)`;
+
+  // The final name — whether it came from body.name or from appending
+  // " (copy)" to the source name — must still respect the same 150-char
+  // limit enforced on create/update (workflows.name is VARCHAR(150)).
+  // Reusing validateName (the same helper validateCreateWorkflow uses) keeps
+  // this a single source of truth for "what makes a workflow name valid"
+  // instead of duplicating the length rule here. Without this check, a chain
+  // of duplications (each appending " (copy)") eventually produces a name
+  // Postgres rejects with a raw column-length error, which would surface as
+  // an unhandled 500 instead of an operational 400.
+  const nameValidationErrors = [];
+  validateName(duplicateName, nameValidationErrors);
+
+  if (nameValidationErrors.length > 0) {
+    throw new AppError("Validation failed", 400, nameValidationErrors);
+  }
+
+  // The duplicate always inherits the source workflow's department — there is
+  // no field for the caller to target a different department here (unlike
+  // createWorkflow, which accepts an explicit departmentId).
+  const duplicatedWorkflow = await workflowsRepository.duplicate({
+    sourceWorkflowId: sourceWorkflow.id,
+    name: duplicateName,
+    description: sourceWorkflow.description,
+    departmentId: sourceWorkflow.department_id,
+    createdBy: requester.id,
+  });
+
+  await safeRegisterAuditLog({
+    action: "WORKFLOW_DUPLICATED",
+    entity: "workflow",
+    entityId: duplicatedWorkflow.id,
+    actorId: requester.id,
+    metadata: {
+      sourceWorkflowId: sourceWorkflow.id,
+      newWorkflowId: duplicatedWorkflow.id,
+    },
+  });
+
+  return duplicatedWorkflow;
+}
+
 module.exports = {
   listWorkflows,
   getWorkflowById,
   createWorkflow,
+  updateWorkflow,
+  duplicateWorkflow,
 };

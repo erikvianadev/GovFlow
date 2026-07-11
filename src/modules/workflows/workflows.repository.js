@@ -1,4 +1,5 @@
 const database = require("../../config/database");
+const workflowStepsRepository = require("../workflow-steps/workflowSteps.repository");
 
 function buildWorkflowsFiltersQuery(filters = {}) {
   const conditions = [];
@@ -133,10 +134,103 @@ async function create({
   return result.rows[0];
 }
 
+async function update({ id, isActive }) {
+  const result = await database.query(
+    `
+      UPDATE workflows
+      SET
+        is_active = $2,
+        updated_at = NOW()
+      WHERE id = $1
+      RETURNING
+        id,
+        name,
+        description,
+        department_id,
+        created_by,
+        is_active,
+        created_at,
+        updated_at
+    `,
+    [id, isActive]
+  );
+
+  return result.rows[0];
+}
+
+// Duplicates a workflow and all of its steps (active and inactive alike) in a
+// single atomic transaction: either the new workflow row and every copied
+// step land together, or nothing is written at all. `sourceWorkflowId`,
+// `name`, `description` and `departmentId` are supplied by the caller (the
+// service already resolved and authorized the source workflow before
+// invoking this method) so this function does not re-read the source
+// workflow row itself; it only reads the source steps, inside the
+// transaction, via workflowStepsRepository.findByWorkflowId.
+async function duplicate({
+  sourceWorkflowId,
+  name,
+  description,
+  departmentId,
+  createdBy,
+}) {
+  return database.transaction(async (trx) => {
+    const insertResult = await trx.query(
+      `
+        INSERT INTO workflows (
+          name,
+          description,
+          department_id,
+          created_by,
+          is_active
+        )
+        VALUES ($1, $2, $3, $4, false)
+        RETURNING
+          id,
+          name,
+          description,
+          department_id,
+          created_by,
+          is_active,
+          created_at,
+          updated_at
+      `,
+      [name, description, departmentId, createdBy]
+    );
+
+    const newWorkflow = insertResult.rows[0];
+
+    // All steps, including inactive ones — a deactivated step in the source
+    // must not be silently dropped from the copy.
+    const sourceSteps = await workflowStepsRepository.findByWorkflowId(
+      sourceWorkflowId,
+      trx
+    );
+
+    for (const step of sourceSteps) {
+      await workflowStepsRepository.create(
+        {
+          workflowId: newWorkflow.id,
+          name: step.name,
+          description: step.description,
+          stepOrder: step.step_order,
+          actionType: step.action_type,
+          configuration: step.configuration,
+          isActive: step.is_active,
+        },
+        trx
+      );
+    }
+
+    return newWorkflow;
+  });
+}
+
 module.exports = {
   findAll,
   countAll,
   findById,
   create,
+  update,
+  duplicate,
   buildWorkflowsFiltersQuery,
 };

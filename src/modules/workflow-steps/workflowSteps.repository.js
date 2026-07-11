@@ -73,15 +73,19 @@ async function findActiveByWorkflowId(workflowId, db = database) {
   return result.rows;
 }
 
-async function create({
-  workflowId,
-  name,
-  description = null,
-  stepOrder,
-  actionType,
-  configuration = null,
-}) {
-  const result = await database.query(
+async function create(
+  {
+    workflowId,
+    name,
+    description = null,
+    stepOrder,
+    actionType,
+    configuration = null,
+    isActive = true,
+  },
+  db = database
+) {
+  const result = await db.query(
     `
       INSERT INTO workflow_steps (
         workflow_id,
@@ -89,9 +93,10 @@ async function create({
         description,
         step_order,
         action_type,
-        configuration
+        configuration,
+        is_active
       )
-      VALUES ($1, $2, $3, $4, $5, $6)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING
         id,
         workflow_id,
@@ -104,7 +109,7 @@ async function create({
         created_at,
         updated_at
     `,
-    [workflowId, name, description, stepOrder, actionType, configuration]
+    [workflowId, name, description, stepOrder, actionType, configuration, isActive]
   );
 
   return result.rows[0];
