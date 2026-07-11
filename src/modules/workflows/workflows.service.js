@@ -3,6 +3,11 @@ const workflowsRepository = require("./workflows.repository");
 const departmentsRepository = require("../departments/departments.repository");
 const { safeRegisterAuditLog } = require("../../utils/safeAuditLog");
 const {
+  assertCanAccessWorkflow,
+  assertCanCreateInDepartment,
+  resolveListDepartmentScope,
+} = require("./workflowsAccess");
+const {
   validateCreateWorkflow,
   validateListWorkflowsFilters,
   validateWorkflowId,
@@ -14,6 +19,7 @@ async function listWorkflows({
   departmentId,
   createdBy,
   isActive,
+  requester,
 }) {
   const validationErrors = validateListWorkflowsFilters({
     departmentId,
@@ -38,6 +44,35 @@ async function listWorkflows({
         : isActive === "true",
   };
 
+  // Object-level scoping: ADMIN lists everything; MANAGER is restricted to
+  // workflows within their own department. A MANAGER without a department
+  // resolves to a null scope and sees an empty result (fail closed). If the
+  // caller also supplied an explicit `departmentId` filter that conflicts
+  // with the requester's own department, the intersection is empty rather
+  // than silently substituting the requester's department — this avoids
+  // both leaking other departments' data and surprising overrides.
+  const departmentScope = resolveListDepartmentScope(requester);
+
+  if (departmentScope.scoped) {
+    if (
+      !departmentScope.departmentId ||
+      (normalizedFilters.departmentId &&
+        normalizedFilters.departmentId !== departmentScope.departmentId)
+    ) {
+      return {
+        items: [],
+        pagination: {
+          page: safePage,
+          limit: safeLimit,
+          total: 0,
+          totalPages: 0,
+        },
+      };
+    }
+
+    normalizedFilters.departmentId = departmentScope.departmentId;
+  }
+
   const [items, total] = await Promise.all([
     workflowsRepository.findAll({
       limit: safeLimit,
@@ -60,7 +95,7 @@ async function listWorkflows({
   };
 }
 
-async function getWorkflowById(id) {
+async function getWorkflowById(id, requester) {
   const validationErrors = validateWorkflowId(id);
 
   if (validationErrors.length > 0) {
@@ -73,6 +108,9 @@ async function getWorkflowById(id) {
     throw new AppError("Workflow not found", 404);
   }
 
+  // Enforce department scope (throws 404 on cross-department access).
+  assertCanAccessWorkflow(workflow, requester);
+
   return workflow;
 }
 
@@ -81,6 +119,7 @@ async function createWorkflow({
   description = null,
   departmentId = null,
   createdBy,
+  requester,
 }) {
   const validationErrors = validateCreateWorkflow({
     name,
@@ -95,6 +134,13 @@ async function createWorkflow({
   if (!createdBy) {
     throw new AppError("Authenticated user is required", 401);
   }
+
+  // Object-level scoping: a MANAGER may only create workflows within their
+  // own department; ADMIN may target any department (including none).
+  // Denial is 404, matching the "Department not found" thrown below for a
+  // genuinely nonexistent department, so a MANAGER cannot distinguish
+  // "not mine" from "does not exist".
+  assertCanCreateInDepartment(departmentId, requester);
 
   const normalizedName = name.trim();
   const normalizedDescription =

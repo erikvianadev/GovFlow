@@ -13,6 +13,7 @@ const list = asyncHandler(async (req, res) => {
     departmentId: req.query.departmentId,
     createdBy: req.query.createdBy,
     isActive: req.query.isActive,
+    requester: req.user,
   });
 
   return paginatedResponse(res, {
@@ -23,7 +24,10 @@ const list = asyncHandler(async (req, res) => {
 });
 
 const getById = asyncHandler(async (req, res) => {
-  const workflow = await workflowsService.getWorkflowById(req.params.id);
+  const workflow = await workflowsService.getWorkflowById(
+    req.params.id,
+    req.user
+  );
 
   return successResponse(res, {
     message: "Workflow retrieved successfully",
@@ -37,6 +41,7 @@ const create = asyncHandler(async (req, res) => {
     description: req.body.description,
     departmentId: req.body.departmentId,
     createdBy: req.user.id,
+    requester: req.user,
   });
 
   return createdResponse(res, {
