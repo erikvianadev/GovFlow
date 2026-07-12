@@ -5,11 +5,11 @@ const test = require("node:test");
 
 const workflowStepsRoutesPath = path.join(
   __dirname,
-  "../src/modules/workflow-steps/workflowSteps.routes.js"
+  "../../src/modules/workflow-steps/workflowSteps.routes.js"
 );
 const workflowsRoutesPath = path.join(
   __dirname,
-  "../src/modules/workflows/workflows.routes.js"
+  "../../src/modules/workflows/workflows.routes.js"
 );
 
 test("workflow steps routes are configured as nested routes", () => {

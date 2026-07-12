@@ -5,7 +5,7 @@ const test = require("node:test");
 
 const migrationPath = path.join(
   __dirname,
-  "../src/database/migrations/004_create_workflows.sql"
+  "../../src/database/migrations/004_create_workflows.sql"
 );
 
 function normalizeSql(sql) {

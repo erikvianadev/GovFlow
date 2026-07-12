@@ -10,7 +10,7 @@ const {
   validateJiraTransitionConfiguration,
   validateWorkflowId,
   VALID_ACTION_TYPES,
-} = require("../src/validators/workflowSteps.validator");
+} = require("../../src/validators/workflowSteps.validator");
 
 const validUuid = "11111111-1111-4111-8111-111111111111";
 

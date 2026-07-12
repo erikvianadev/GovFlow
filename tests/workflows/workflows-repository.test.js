@@ -4,7 +4,7 @@ const test = require("node:test");
 
 const {
   buildWorkflowsFiltersQuery,
-} = require("../src/modules/workflows/workflows.repository");
+} = require("../../src/modules/workflows/workflows.repository");
 
 test("buildWorkflowsFiltersQuery builds no WHERE clause without filters", () => {
   const result = buildWorkflowsFiltersQuery({});
@@ -40,12 +40,12 @@ test("buildWorkflowsFiltersQuery builds ordered parameterized filters", () => {
 
 const repositoryPath = path.join(
   __dirname,
-  "../src/modules/workflows/workflows.repository.js"
+  "../../src/modules/workflows/workflows.repository.js"
 );
-const databasePath = path.join(__dirname, "../src/config/database.js");
+const databasePath = path.join(__dirname, "../../src/config/database.js");
 const workflowStepsRepositoryPath = path.join(
   __dirname,
-  "../src/modules/workflow-steps/workflowSteps.repository.js"
+  "../../src/modules/workflow-steps/workflowSteps.repository.js"
 );
 
 function mockModule(modulePath, exports) {

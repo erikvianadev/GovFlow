@@ -4,13 +4,13 @@ const test = require("node:test");
 
 const servicePath = path.join(
   __dirname,
-  "../src/modules/workflows/workflows.service.js"
+  "../../src/modules/workflows/workflows.service.js"
 );
 const workflowsRepositoryPath = path.join(
   __dirname,
-  "../src/modules/workflows/workflows.repository.js"
+  "../../src/modules/workflows/workflows.repository.js"
 );
-const safeAuditLogPath = path.join(__dirname, "../src/utils/safeAuditLog.js");
+const safeAuditLogPath = path.join(__dirname, "../../src/utils/safeAuditLog.js");
 
 const validWorkflowId = "11111111-1111-4111-8111-111111111111";
 const validUserId = "22222222-2222-4222-8222-222222222222";

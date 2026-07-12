@@ -5,11 +5,11 @@ const test = require("node:test");
 
 const workflowsRoutesPath = path.join(
   __dirname,
-  "../src/modules/workflows/workflows.routes.js"
+  "../../src/modules/workflows/workflows.routes.js"
 );
 const workflowsControllerPath = path.join(
   __dirname,
-  "../src/modules/workflows/workflows.controller.js"
+  "../../src/modules/workflows/workflows.controller.js"
 );
 
 test("PATCH /:id is authenticated, role-gated to ADMIN/MANAGER, and wired to the update controller", () => {
