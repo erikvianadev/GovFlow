@@ -7,7 +7,7 @@ integrations such as Jira.
 
 ## Current Status
 
-Sprint 6.7 - Queue Dashboard / Admin Visibility completed.
+Sprint 6.8 - Workflow Templates & Reusability completed.
 
 GovFlow processes workflow executions asynchronously and integrates with the
 real Jira Cloud REST API for `JIRA_COMMENT` and `JIRA_TRANSITION` steps. Recent
@@ -16,8 +16,11 @@ duplicate external Jira side effects under retries and concurrency (6.4.2), a
 best-effort remote check during stale-running recovery (6.4.3) that asks Jira
 whether a `JIRA_COMMENT` was already created before recording a false `FAILED`,
 structured logging with secret redaction and request/execution correlation
-(6.6), and an ADMIN-only queue dashboard for operational visibility into
-BullMQ job state, with guarded retry and delete (6.7).
+(6.6), an ADMIN-only queue dashboard for operational visibility into
+BullMQ job state, with guarded retry and delete (6.7), Jira integration polish
+with boot-time configuration validation and per-status business error
+messages (6.5), and department-scoped workflow management with
+activate/deactivate and duplication (6.8).
 
 The current backend includes:
 
@@ -45,7 +48,7 @@ The current backend includes:
 - JWT access token generation with hardened claims
 - Authentication middleware
 - Role-based authorization middleware
-- Object-level (department-scoped) authorization for executions
+- Object-level (department-scoped) authorization for workflows and executions
 - Protected routes
 - Helmet security headers, CORS allowlist, and trust-proxy-aware rate limiting
 - Workflows module
@@ -412,6 +415,8 @@ Protected routes use role-based access control.
 | `GET /workflows` | ADMIN, MANAGER |
 | `GET /workflows/:id` | ADMIN, MANAGER |
 | `POST /workflows` | ADMIN, MANAGER |
+| `PATCH /workflows/:id` | ADMIN, MANAGER |
+| `POST /workflows/:id/duplicate` | ADMIN, MANAGER |
 | `GET /workflows/:workflowId/steps` | ADMIN, MANAGER |
 | `POST /workflows/:workflowId/steps` | ADMIN, MANAGER |
 | `POST /workflows/:workflowId/executions` | ADMIN, MANAGER, OPERATOR |
@@ -508,6 +513,8 @@ LOGIN_FAILED
 DEPARTMENT_CREATED
 USER_CREATED
 WORKFLOW_CREATED
+WORKFLOW_UPDATED
+WORKFLOW_DUPLICATED
 WORKFLOW_STEP_CREATED
 WORKFLOW_EXECUTION_CREATED
 WORKFLOW_EXECUTION_PROCESS_STARTED
@@ -528,6 +535,10 @@ JIRA_TRANSITION_FAILED
 
 `HEALTH_CHECK_DEEP_EXECUTED` is recorded by the admin-only deep health check; the
 public `/health` endpoint does not write an audit log per request.
+
+`WORKFLOW_UPDATED` is recorded when a workflow's `is_active` flag is changed
+via PATCH. `WORKFLOW_DUPLICATED` is recorded when a workflow is duplicated,
+with metadata linking the source and new workflow ids.
 
 `WORKFLOW_EXECUTION_PROCESS_SKIPPED` is recorded when the worker finishes an
 execution that was already finalized concurrently (for example, recovered as
@@ -587,7 +598,9 @@ docker exec govflow_api npm test
 Sprint 6.4.2 delivered step-level idempotency and local deduplication of Jira
 side effects; Sprint 6.4.3 added a read-only, best-effort remote marker lookup
 that lets stale-running recovery recover a `JIRA_COMMENT` step instead of
-recording a false `FAILED`.
+recording a false `FAILED`. Sprints 6.5-6.8 followed with Jira integration
+polish, structured logging, the queue dashboard, and department-scoped
+workflow management with activate/deactivate and duplication.
 
 Planned next improvements:
 
@@ -595,7 +608,6 @@ Planned next improvements:
   expected target status to tell "already applied" from a real failure; the
   6.4.3 lookup is recovery-only and covers `JIRA_COMMENT` only)
 - Observability of skips by audit reason and worker/queue metrics
-- Queue dashboard / admin tooling
 - Automatic scheduled recovery for stale RUNNING executions
 - External API timeout tuning and circuit-breaking
 - Optional removal of the temporary `/enqueue` alias
