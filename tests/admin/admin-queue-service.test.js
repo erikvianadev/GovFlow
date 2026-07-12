@@ -4,13 +4,13 @@ const test = require("node:test");
 
 const servicePath = path.join(
   __dirname,
-  "../src/modules/admin/adminQueue.service.js"
+  "../../src/modules/admin/adminQueue.service.js"
 );
 const workflowProcessingQueuePath = path.join(
   __dirname,
-  "../src/queues/workflowProcessing.queue.js"
+  "../../src/queues/workflowProcessing.queue.js"
 );
-const loggerPath = path.join(__dirname, "../src/config/logger.js");
+const loggerPath = path.join(__dirname, "../../src/config/logger.js");
 
 function mockModule(modulePath, exports) {
   delete require.cache[modulePath];

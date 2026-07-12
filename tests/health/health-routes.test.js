@@ -4,36 +4,36 @@ const http = require("node:http");
 const path = require("node:path");
 const test = require("node:test");
 
-const { signAccessToken } = require("../src/utils/jwt");
+const { signAccessToken } = require("../../src/utils/jwt");
 
 const healthRoutesPath = path.join(
   __dirname,
-  "../src/modules/health/health.routes.js"
+  "../../src/modules/health/health.routes.js"
 );
 const healthControllerPath = path.join(
   __dirname,
-  "../src/modules/health/health.controller.js"
+  "../../src/modules/health/health.controller.js"
 );
 const healthServicePath = path.join(
   __dirname,
-  "../src/modules/health/health.service.js"
+  "../../src/modules/health/health.service.js"
 );
 const authMiddlewarePath = path.join(
   __dirname,
-  "../src/middlewares/auth.middleware.js"
+  "../../src/middlewares/auth.middleware.js"
 );
 const usersRepositoryPath = path.join(
   __dirname,
-  "../src/modules/users/users.repository.js"
+  "../../src/modules/users/users.repository.js"
 );
 const auditLogsServicePath = path.join(
   __dirname,
-  "../src/modules/audit-logs/auditLogs.service.js"
+  "../../src/modules/audit-logs/auditLogs.service.js"
 );
-const safeAuditLogPath = path.join(__dirname, "../src/utils/safeAuditLog.js");
+const safeAuditLogPath = path.join(__dirname, "../../src/utils/safeAuditLog.js");
 const errorMiddlewarePath = path.join(
   __dirname,
-  "../src/middlewares/error.middleware.js"
+  "../../src/middlewares/error.middleware.js"
 );
 
 const adminUser = {

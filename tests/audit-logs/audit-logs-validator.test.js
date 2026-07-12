@@ -4,7 +4,7 @@ const test = require("node:test");
 const {
   validateCreateManualAuditLog,
   MANUAL_AUDIT_LOG_ACTIONS,
-} = require("../src/validators/auditLogs.validator");
+} = require("../../src/validators/auditLogs.validator");
 
 const validActorId = "22222222-2222-4222-8222-222222222222";
 

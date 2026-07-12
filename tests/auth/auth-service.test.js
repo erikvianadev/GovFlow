@@ -2,14 +2,14 @@ const assert = require("node:assert");
 const path = require("node:path");
 const test = require("node:test");
 
-const servicePath = path.join(__dirname, "../src/modules/auth/auth.service.js");
+const servicePath = path.join(__dirname, "../../src/modules/auth/auth.service.js");
 const usersRepositoryPath = path.join(
   __dirname,
-  "../src/modules/users/users.repository.js"
+  "../../src/modules/users/users.repository.js"
 );
-const passwordPath = path.join(__dirname, "../src/utils/password.js");
-const jwtPath = path.join(__dirname, "../src/utils/jwt.js");
-const safeAuditLogPath = path.join(__dirname, "../src/utils/safeAuditLog.js");
+const passwordPath = path.join(__dirname, "../../src/utils/password.js");
+const jwtPath = path.join(__dirname, "../../src/utils/jwt.js");
+const safeAuditLogPath = path.join(__dirname, "../../src/utils/safeAuditLog.js");
 
 const DUMMY_HASH = "$2b$10$dummytestonlyhashvalueforunittests0000000000000000000";
 

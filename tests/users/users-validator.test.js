@@ -1,7 +1,7 @@
 const assert = require("node:assert");
 const test = require("node:test");
 
-const { validateCreateUser } = require("../src/validators/users.validator");
+const { validateCreateUser } = require("../../src/validators/users.validator");
 
 const VALID_USER = {
   name: "New User",

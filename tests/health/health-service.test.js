@@ -2,9 +2,9 @@ const assert = require("node:assert");
 const path = require("node:path");
 const test = require("node:test");
 
-const servicePath = path.join(__dirname, "../src/modules/health/health.service.js");
-const databasePath = path.join(__dirname, "../src/config/database.js");
-const redisPath = path.join(__dirname, "../src/config/redis.js");
+const servicePath = path.join(__dirname, "../../src/modules/health/health.service.js");
+const databasePath = path.join(__dirname, "../../src/config/database.js");
+const redisPath = path.join(__dirname, "../../src/config/redis.js");
 
 function mockModule(modulePath, exports) {
   delete require.cache[modulePath];

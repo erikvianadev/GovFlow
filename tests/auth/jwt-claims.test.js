@@ -2,8 +2,8 @@ const assert = require("node:assert");
 const test = require("node:test");
 const jwt = require("jsonwebtoken");
 
-const env = require("../src/config/env");
-const { signAccessToken, verifyAccessToken } = require("../src/utils/jwt");
+const env = require("../../src/config/env");
+const { signAccessToken, verifyAccessToken } = require("../../src/utils/jwt");
 
 const user = {
   id: "22222222-2222-4222-8222-222222222222",
