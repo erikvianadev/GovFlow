@@ -4,7 +4,7 @@ const test = require("node:test");
 const {
   JiraBusinessError,
   JiraTechnicalError,
-} = require("../src/modules/jira/jira.errors");
+} = require("../../src/modules/jira/jira.errors");
 
 // Mirrors the shape of a real axios error: config/request/headers carry the
 // Jira Basic Auth header (Authorization) that must never reach a log.

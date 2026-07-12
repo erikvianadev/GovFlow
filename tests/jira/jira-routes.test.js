@@ -4,25 +4,25 @@ const http = require("node:http");
 const path = require("node:path");
 const test = require("node:test");
 
-const { signAccessToken } = require("../src/utils/jwt");
+const { signAccessToken } = require("../../src/utils/jwt");
 
-const jiraRoutesPath = path.join(__dirname, "../src/modules/jira/jira.routes.js");
+const jiraRoutesPath = path.join(__dirname, "../../src/modules/jira/jira.routes.js");
 const jiraControllerPath = path.join(
   __dirname,
-  "../src/modules/jira/jira.controller.js"
+  "../../src/modules/jira/jira.controller.js"
 );
-const jiraServicePath = path.join(__dirname, "../src/modules/jira/jira.service.js");
+const jiraServicePath = path.join(__dirname, "../../src/modules/jira/jira.service.js");
 const authMiddlewarePath = path.join(
   __dirname,
-  "../src/middlewares/auth.middleware.js"
+  "../../src/middlewares/auth.middleware.js"
 );
 const usersRepositoryPath = path.join(
   __dirname,
-  "../src/modules/users/users.repository.js"
+  "../../src/modules/users/users.repository.js"
 );
 const errorMiddlewarePath = path.join(
   __dirname,
-  "../src/middlewares/error.middleware.js"
+  "../../src/middlewares/error.middleware.js"
 );
 
 const adminUser = {

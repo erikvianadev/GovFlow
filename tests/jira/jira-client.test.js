@@ -2,8 +2,8 @@ const assert = require("node:assert");
 const path = require("node:path");
 const test = require("node:test");
 
-const clientPath = path.join(__dirname, "../src/modules/jira/jira.client.js");
-const envPath = path.join(__dirname, "../src/config/env.js");
+const clientPath = path.join(__dirname, "../../src/modules/jira/jira.client.js");
+const envPath = path.join(__dirname, "../../src/config/env.js");
 const axiosPath = require.resolve("axios");
 
 function mockModule(modulePath, exports) {
