@@ -120,6 +120,18 @@ src/
   utils/
   validators/
 tests/
+  admin/
+  audit-logs/
+  auth/
+  health/
+  infra/
+  jira/
+  users/
+  workflow-execution-steps/
+  workflow-executions/
+  workflow-processing/
+  workflow-steps/
+  workflows/
 docs/
 ```
 
