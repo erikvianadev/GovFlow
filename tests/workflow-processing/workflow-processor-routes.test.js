@@ -5,9 +5,9 @@ const test = require("node:test");
 
 const workflowProcessorRoutesPath = path.join(
   __dirname,
-  "../src/modules/workflow-processing/workflowProcessor.routes.js"
+  "../../src/modules/workflow-processing/workflowProcessor.routes.js"
 );
-const routesIndexPath = path.join(__dirname, "../src/routes/index.js");
+const routesIndexPath = path.join(__dirname, "../../src/routes/index.js");
 
 test("workflow processor route is registered for ADMIN and MANAGER", () => {
   const workflowProcessorRoutes = fs.readFileSync(

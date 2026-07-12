@@ -3,10 +3,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 
-const bullmqConfigPath = path.join(__dirname, "../src/config/bullmq.js");
+const bullmqConfigPath = path.join(__dirname, "../../src/config/bullmq.js");
 const queuePath = path.join(
   __dirname,
-  "../src/queues/workflowProcessing.queue.js"
+  "../../src/queues/workflowProcessing.queue.js"
 );
 
 test("BullMQ connection uses Redis environment configuration", () => {

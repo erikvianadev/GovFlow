@@ -4,17 +4,17 @@ const test = require("node:test");
 
 const workerPath = path.join(
   __dirname,
-  "../src/workers/workflowProcessing.worker.js"
+  "../../src/workers/workflowProcessing.worker.js"
 );
 const bullmqPath = require.resolve("bullmq");
-const bullmqConfigPath = path.join(__dirname, "../src/config/bullmq.js");
+const bullmqConfigPath = path.join(__dirname, "../../src/config/bullmq.js");
 const workflowProcessingQueuePath = path.join(
   __dirname,
-  "../src/queues/workflowProcessing.queue.js"
+  "../../src/queues/workflowProcessing.queue.js"
 );
 const workflowProcessorServicePath = path.join(
   __dirname,
-  "../src/modules/workflow-processing/workflowProcessor.service.js"
+  "../../src/modules/workflow-processing/workflowProcessor.service.js"
 );
 
 const validExecutionId = "11111111-1111-4111-8111-111111111111";

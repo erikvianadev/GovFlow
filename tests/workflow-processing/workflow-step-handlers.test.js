@@ -4,11 +4,11 @@ const test = require("node:test");
 
 const handlersPath = path.join(
   __dirname,
-  "../src/modules/workflow-processing/workflowStepHandlers.js"
+  "../../src/modules/workflow-processing/workflowStepHandlers.js"
 );
-const jiraServicePath = path.join(__dirname, "../src/modules/jira/jira.service.js");
-const safeAuditLogPath = path.join(__dirname, "../src/utils/safeAuditLog.js");
-const loggerPath = path.join(__dirname, "../src/config/logger.js");
+const jiraServicePath = path.join(__dirname, "../../src/modules/jira/jira.service.js");
+const safeAuditLogPath = path.join(__dirname, "../../src/utils/safeAuditLog.js");
+const loggerPath = path.join(__dirname, "../../src/config/logger.js");
 
 const execution = {
   id: "11111111-1111-4111-8111-111111111111",
