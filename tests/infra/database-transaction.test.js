@@ -3,7 +3,7 @@ const path = require("node:path");
 const test = require("node:test");
 
 const pgPath = require.resolve("pg");
-const databasePath = path.join(__dirname, "../src/config/database.js");
+const databasePath = path.join(__dirname, "../../src/config/database.js");
 
 function loadDatabaseWithClient(client) {
   delete require.cache[databasePath];

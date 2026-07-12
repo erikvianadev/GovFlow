@@ -4,7 +4,7 @@ const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
 
-const envModulePath = path.join(__dirname, "../src/config/env.js");
+const envModulePath = path.join(__dirname, "../../src/config/env.js");
 
 // A complete set of valid environment variables. Individual tests remove or
 // override entries from this base to exercise the validation rules.

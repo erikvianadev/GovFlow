@@ -4,8 +4,8 @@ const test = require("node:test");
 const { Writable } = require("node:stream");
 const pino = require("pino");
 
-const loggerPath = path.join(__dirname, "../src/config/logger.js");
-const envPath = path.join(__dirname, "../src/config/env.js");
+const loggerPath = path.join(__dirname, "../../src/config/logger.js");
+const envPath = path.join(__dirname, "../../src/config/env.js");
 
 function mockModule(modulePath, exports) {
   delete require.cache[modulePath];

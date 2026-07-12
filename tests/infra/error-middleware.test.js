@@ -2,15 +2,15 @@ const assert = require("node:assert");
 const path = require("node:path");
 const test = require("node:test");
 
-const AppError = require("../src/errors/AppError");
+const AppError = require("../../src/errors/AppError");
 
 const errorMiddlewarePath = path.join(
   __dirname,
-  "../src/middlewares/error.middleware.js"
+  "../../src/middlewares/error.middleware.js"
 );
-const envPath = path.join(__dirname, "../src/config/env.js");
-const apiResponsePath = path.join(__dirname, "../src/utils/apiResponse.js");
-const loggerPath = path.join(__dirname, "../src/config/logger.js");
+const envPath = path.join(__dirname, "../../src/config/env.js");
+const apiResponsePath = path.join(__dirname, "../../src/utils/apiResponse.js");
+const loggerPath = path.join(__dirname, "../../src/config/logger.js");
 
 function mockModule(modulePath, exports) {
   delete require.cache[modulePath];

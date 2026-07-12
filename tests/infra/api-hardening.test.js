@@ -3,40 +3,40 @@ const http = require("node:http");
 const path = require("node:path");
 const test = require("node:test");
 
-const appPath = path.join(__dirname, "../src/app.js");
-const routesIndexPath = path.join(__dirname, "../src/routes/index.js");
+const appPath = path.join(__dirname, "../../src/app.js");
+const routesIndexPath = path.join(__dirname, "../../src/routes/index.js");
 const authRoutesPath = path.join(
   __dirname,
-  "../src/modules/auth/auth.routes.js"
+  "../../src/modules/auth/auth.routes.js"
 );
 const authControllerPath = path.join(
   __dirname,
-  "../src/modules/auth/auth.controller.js"
+  "../../src/modules/auth/auth.controller.js"
 );
 const authServicePath = path.join(
   __dirname,
-  "../src/modules/auth/auth.service.js"
+  "../../src/modules/auth/auth.service.js"
 );
 const rateLimitMiddlewarePath = path.join(
   __dirname,
-  "../src/middlewares/rate-limit.middleware.js"
+  "../../src/middlewares/rate-limit.middleware.js"
 );
 const usersRepositoryPath = path.join(
   __dirname,
-  "../src/modules/users/users.repository.js"
+  "../../src/modules/users/users.repository.js"
 );
-const safeAuditLogPath = path.join(__dirname, "../src/utils/safeAuditLog.js");
+const safeAuditLogPath = path.join(__dirname, "../../src/utils/safeAuditLog.js");
 const workflowProcessingQueueServicePath = path.join(
   __dirname,
-  "../src/modules/workflow-processing/workflowProcessingQueue.service.js"
+  "../../src/modules/workflow-processing/workflowProcessingQueue.service.js"
 );
 const workflowProcessingJobServicePath = path.join(
   __dirname,
-  "../src/modules/workflow-processing/workflowProcessingJob.service.js"
+  "../../src/modules/workflow-processing/workflowProcessingJob.service.js"
 );
 const adminQueueServicePath = path.join(
   __dirname,
-  "../src/modules/admin/adminQueue.service.js"
+  "../../src/modules/admin/adminQueue.service.js"
 );
 
 function mockModule(modulePath, exports) {

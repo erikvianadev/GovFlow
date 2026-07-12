@@ -15,7 +15,7 @@ process.env.ADMIN_RATE_LIMIT_MAX = "2";
 
 const rateLimitMiddlewarePath = path.join(
   __dirname,
-  "../src/middlewares/rate-limit.middleware.js"
+  "../../src/middlewares/rate-limit.middleware.js"
 );
 
 const {
