@@ -4,15 +4,15 @@ const test = require("node:test");
 
 const servicePath = path.join(
   __dirname,
-  "../src/modules/workflow-execution-steps/workflowExecutionSteps.service.js"
+  "../../src/modules/workflow-execution-steps/workflowExecutionSteps.service.js"
 );
 const workflowExecutionsRepositoryPath = path.join(
   __dirname,
-  "../src/modules/workflow-executions/workflowExecutions.repository.js"
+  "../../src/modules/workflow-executions/workflowExecutions.repository.js"
 );
 const workflowExecutionStepsRepositoryPath = path.join(
   __dirname,
-  "../src/modules/workflow-execution-steps/workflowExecutionSteps.repository.js"
+  "../../src/modules/workflow-execution-steps/workflowExecutionSteps.repository.js"
 );
 
 const validExecutionId = "11111111-1111-4111-8111-111111111111";

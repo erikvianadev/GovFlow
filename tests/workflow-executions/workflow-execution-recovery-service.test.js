@@ -4,21 +4,21 @@ const test = require("node:test");
 
 const servicePath = path.join(
   __dirname,
-  "../src/modules/workflow-processing/workflowExecutionRecovery.service.js"
+  "../../src/modules/workflow-processing/workflowExecutionRecovery.service.js"
 );
-const databasePath = path.join(__dirname, "../src/config/database.js");
-const envPath = path.join(__dirname, "../src/config/env.js");
+const databasePath = path.join(__dirname, "../../src/config/database.js");
+const envPath = path.join(__dirname, "../../src/config/env.js");
 const workflowExecutionsRepositoryPath = path.join(
   __dirname,
-  "../src/modules/workflow-executions/workflowExecutions.repository.js"
+  "../../src/modules/workflow-executions/workflowExecutions.repository.js"
 );
 const workflowExecutionStepsRepositoryPath = path.join(
   __dirname,
-  "../src/modules/workflow-execution-steps/workflowExecutionSteps.repository.js"
+  "../../src/modules/workflow-execution-steps/workflowExecutionSteps.repository.js"
 );
-const jiraServicePath = path.join(__dirname, "../src/modules/jira/jira.service.js");
-const safeAuditLogPath = path.join(__dirname, "../src/utils/safeAuditLog.js");
-const loggerPath = path.join(__dirname, "../src/config/logger.js");
+const jiraServicePath = path.join(__dirname, "../../src/modules/jira/jira.service.js");
+const safeAuditLogPath = path.join(__dirname, "../../src/utils/safeAuditLog.js");
+const loggerPath = path.join(__dirname, "../../src/config/logger.js");
 
 function mockModule(modulePath, exports) {
   delete require.cache[modulePath];

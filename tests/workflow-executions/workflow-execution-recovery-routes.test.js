@@ -3,41 +3,41 @@ const http = require("node:http");
 const path = require("node:path");
 const test = require("node:test");
 
-const { signAccessToken } = require("../src/utils/jwt");
+const { signAccessToken } = require("../../src/utils/jwt");
 
-const appPath = path.join(__dirname, "../src/app.js");
-const routesIndexPath = path.join(__dirname, "../src/routes/index.js");
+const appPath = path.join(__dirname, "../../src/app.js");
+const routesIndexPath = path.join(__dirname, "../../src/routes/index.js");
 const workflowProcessorRoutesPath = path.join(
   __dirname,
-  "../src/modules/workflow-processing/workflowProcessor.routes.js"
+  "../../src/modules/workflow-processing/workflowProcessor.routes.js"
 );
 const workflowExecutionsGlobalRoutesPath = path.join(
   __dirname,
-  "../src/modules/workflow-executions/workflowExecutions.global.routes.js"
+  "../../src/modules/workflow-executions/workflowExecutions.global.routes.js"
 );
 const workflowExecutionRecoveryControllerPath = path.join(
   __dirname,
-  "../src/modules/workflow-processing/workflowExecutionRecovery.controller.js"
+  "../../src/modules/workflow-processing/workflowExecutionRecovery.controller.js"
 );
 const workflowExecutionRecoveryServicePath = path.join(
   __dirname,
-  "../src/modules/workflow-processing/workflowExecutionRecovery.service.js"
+  "../../src/modules/workflow-processing/workflowExecutionRecovery.service.js"
 );
 const workflowProcessingJobServicePath = path.join(
   __dirname,
-  "../src/modules/workflow-processing/workflowProcessingJob.service.js"
+  "../../src/modules/workflow-processing/workflowProcessingJob.service.js"
 );
 const adminQueueServicePath = path.join(
   __dirname,
-  "../src/modules/admin/adminQueue.service.js"
+  "../../src/modules/admin/adminQueue.service.js"
 );
 const authMiddlewarePath = path.join(
   __dirname,
-  "../src/middlewares/auth.middleware.js"
+  "../../src/middlewares/auth.middleware.js"
 );
 const usersRepositoryPath = path.join(
   __dirname,
-  "../src/modules/users/users.repository.js"
+  "../../src/modules/users/users.repository.js"
 );
 
 const adminUser = {

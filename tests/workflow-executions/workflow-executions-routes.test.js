@@ -5,17 +5,17 @@ const test = require("node:test");
 
 const nestedRoutesPath = path.join(
   __dirname,
-  "../src/modules/workflow-executions/workflowExecutions.routes.js"
+  "../../src/modules/workflow-executions/workflowExecutions.routes.js"
 );
 const globalRoutesPath = path.join(
   __dirname,
-  "../src/modules/workflow-executions/workflowExecutions.global.routes.js"
+  "../../src/modules/workflow-executions/workflowExecutions.global.routes.js"
 );
 const workflowsRoutesPath = path.join(
   __dirname,
-  "../src/modules/workflows/workflows.routes.js"
+  "../../src/modules/workflows/workflows.routes.js"
 );
-const routesIndexPath = path.join(__dirname, "../src/routes/index.js");
+const routesIndexPath = path.join(__dirname, "../../src/routes/index.js");
 
 test("workflow executions routes are configured as nested and global routes", () => {
   const nestedRoutes = fs.readFileSync(nestedRoutesPath, "utf8");

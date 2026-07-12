@@ -3,7 +3,7 @@ const test = require("node:test");
 
 const {
   validateExecutionId,
-} = require("../src/validators/workflowExecutionSteps.validator");
+} = require("../../src/validators/workflowExecutionSteps.validator");
 
 const validUuid = "11111111-1111-4111-8111-111111111111";
 

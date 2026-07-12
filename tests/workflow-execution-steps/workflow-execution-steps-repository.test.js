@@ -1,7 +1,7 @@
 const assert = require("node:assert");
 const test = require("node:test");
 
-const repository = require("../src/modules/workflow-execution-steps/workflowExecutionSteps.repository");
+const repository = require("../../src/modules/workflow-execution-steps/workflowExecutionSteps.repository");
 
 test("createMany returns an empty list without querying for empty payloads", async () => {
   const db = {

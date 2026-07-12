@@ -7,7 +7,7 @@ const {
   failStaleRunning,
   finalizeRunningExecution,
   findStaleRunning,
-} = require("../src/modules/workflow-executions/workflowExecutions.repository");
+} = require("../../src/modules/workflow-executions/workflowExecutions.repository");
 
 test("buildWorkflowExecutionsFiltersQuery builds no WHERE clause without filters", () => {
   const result = buildWorkflowExecutionsFiltersQuery({});

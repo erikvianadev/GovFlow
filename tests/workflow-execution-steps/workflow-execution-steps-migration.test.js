@@ -5,11 +5,11 @@ const test = require("node:test");
 
 const migrationPath = path.join(
   __dirname,
-  "../src/database/migrations/007_create_workflow_execution_steps.sql"
+  "../../src/database/migrations/007_create_workflow_execution_steps.sql"
 );
 const outputMigrationPath = path.join(
   __dirname,
-  "../src/database/migrations/008_add_output_to_workflow_execution_steps.sql"
+  "../../src/database/migrations/008_add_output_to_workflow_execution_steps.sql"
 );
 
 function normalizeSql(sql) {

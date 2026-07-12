@@ -4,7 +4,7 @@ const test = require("node:test");
 
 const accessPath = path.join(
   __dirname,
-  "../src/modules/workflow-executions/workflowExecutionAccess.js"
+  "../../src/modules/workflow-executions/workflowExecutionAccess.js"
 );
 
 const {

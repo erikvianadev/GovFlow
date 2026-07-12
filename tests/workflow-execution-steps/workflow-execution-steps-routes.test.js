@@ -5,11 +5,11 @@ const test = require("node:test");
 
 const workflowExecutionStepsRoutesPath = path.join(
   __dirname,
-  "../src/modules/workflow-execution-steps/workflowExecutionSteps.routes.js"
+  "../../src/modules/workflow-execution-steps/workflowExecutionSteps.routes.js"
 );
 const workflowExecutionsGlobalRoutesPath = path.join(
   __dirname,
-  "../src/modules/workflow-executions/workflowExecutions.global.routes.js"
+  "../../src/modules/workflow-executions/workflowExecutions.global.routes.js"
 );
 
 test("workflow execution steps routes are configured as nested global execution routes", () => {

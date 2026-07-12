@@ -4,26 +4,26 @@ const test = require("node:test");
 
 const servicePath = path.join(
   __dirname,
-  "../src/modules/workflow-executions/workflowExecutions.service.js"
+  "../../src/modules/workflow-executions/workflowExecutions.service.js"
 );
-const databasePath = path.join(__dirname, "../src/config/database.js");
+const databasePath = path.join(__dirname, "../../src/config/database.js");
 const workflowsRepositoryPath = path.join(
   __dirname,
-  "../src/modules/workflows/workflows.repository.js"
+  "../../src/modules/workflows/workflows.repository.js"
 );
 const workflowStepsRepositoryPath = path.join(
   __dirname,
-  "../src/modules/workflow-steps/workflowSteps.repository.js"
+  "../../src/modules/workflow-steps/workflowSteps.repository.js"
 );
 const workflowExecutionStepsRepositoryPath = path.join(
   __dirname,
-  "../src/modules/workflow-execution-steps/workflowExecutionSteps.repository.js"
+  "../../src/modules/workflow-execution-steps/workflowExecutionSteps.repository.js"
 );
 const workflowExecutionsRepositoryPath = path.join(
   __dirname,
-  "../src/modules/workflow-executions/workflowExecutions.repository.js"
+  "../../src/modules/workflow-executions/workflowExecutions.repository.js"
 );
-const safeAuditLogPath = path.join(__dirname, "../src/utils/safeAuditLog.js");
+const safeAuditLogPath = path.join(__dirname, "../../src/utils/safeAuditLog.js");
 
 const validWorkflowId = "11111111-1111-4111-8111-111111111111";
 const validUserId = "22222222-2222-4222-8222-222222222222";
