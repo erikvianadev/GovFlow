@@ -29,12 +29,17 @@ There are three distinct sources, and they are handled differently:
    `validateJiraCommentConfiguration`.
 
 `testConnection` (backing `GET /jira/test-connection`) is a partial exception:
-its own precondition checks (lines 7–18 of `jira.service.js`) use plain
+its own precondition checks (lines 32–45 of `jira.service.js`) use plain
 `AppError`, not `JiraBusinessError`/`JiraTechnicalError` — only failures from
 the actual `getMyself()` call go through `normalizeJiraError`. This is an
 existing asymmetry with `assertJiraIntegrationReady` (used by the two
 step-processing calls); it is documented here as observed fact, not something
-this sprint changes.
+this sprint changes. Both `testConnection` and `assertJiraIntegrationReady`
+resolve the same 3 preconditions (in the same order) through a shared private
+helper, `checkJiraReadiness()`, which only reports which precondition failed
+(or that all are satisfied) — it does not decide the error class or message,
+so the `AppError` vs. `JiraTechnicalError`/`JiraBusinessError` split described
+above and in the table below is unchanged.
 
 ## Status-by-status table (Jira HTTP responses, via `normalizeJiraError`)
 
