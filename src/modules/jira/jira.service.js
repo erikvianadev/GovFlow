@@ -4,16 +4,43 @@ const env = require("../../config/env");
 const logger = require("../../config/logger");
 const { JiraBusinessError, JiraTechnicalError } = require("./jira.errors");
 
-async function testConnection() {
+// Centralizes the 3 local preconditions shared by testConnection() and
+// assertJiraIntegrationReady(): jiraClient failed to construct, JIRA_ENABLED
+// is false, or JIRA_ENABLED is true but the required vars are missing. Order
+// matters and mirrors the order both call sites checked before this
+// extraction. This helper only reports which precondition failed (or null
+// when ready) — it does NOT decide the error class or message, since
+// testConnection() (plain AppError, HTTP-facing) and
+// assertJiraIntegrationReady() (JiraTechnicalError/JiraBusinessError,
+// workflow-processing-facing) map the same reason to different error types.
+function checkJiraReadiness() {
   if (!jiraClient) {
-    throw new AppError("Jira client not available", 500);
+    return "client_unavailable";
   }
 
   if (!env.jira.enabled) {
-    throw new AppError("Jira integration is disabled", 400);
+    return "disabled";
   }
 
   if (!env.jira.baseUrl || !env.jira.email || !env.jira.apiToken) {
+    return "not_configured";
+  }
+
+  return null;
+}
+
+async function testConnection() {
+  const readinessReason = checkJiraReadiness();
+
+  if (readinessReason === "client_unavailable") {
+    throw new AppError("Jira client not available", 500);
+  }
+
+  if (readinessReason === "disabled") {
+    throw new AppError("Jira integration is disabled", 400);
+  }
+
+  if (readinessReason === "not_configured") {
     throw new AppError("Jira integration is not configured", 500);
   }
 
@@ -174,15 +201,17 @@ async function findCommentByExecutionStepMarker({ issueKey, executionStepId }) {
 }
 
 function assertJiraIntegrationReady() {
-  if (!jiraClient) {
+  const readinessReason = checkJiraReadiness();
+
+  if (readinessReason === "client_unavailable") {
     throw new JiraTechnicalError("Jira client not available");
   }
 
-  if (!env.jira.enabled) {
+  if (readinessReason === "disabled") {
     throw new JiraBusinessError("Jira integration is disabled", 400);
   }
 
-  if (!env.jira.baseUrl || !env.jira.email || !env.jira.apiToken) {
+  if (readinessReason === "not_configured") {
     throw new JiraTechnicalError("Jira integration is not configured");
   }
 }
