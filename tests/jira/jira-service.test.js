@@ -296,6 +296,57 @@ test("transitionIssue maps 429 and network failures to technical failures", asyn
   }
 });
 
+test("transitionIssue maps unmapped 4xx statuses (402, 405, 410, 422) to business failures with the generic status message", async () => {
+  for (const status of [402, 405, 410, 422]) {
+    const { service } = loadService({
+      post: async () => {
+        const error = new Error(`jira status ${status}`);
+        error.response = {
+          status,
+        };
+        throw error;
+      },
+    });
+
+    await assert.rejects(
+      service.transitionIssue({
+        issueKey: "ABC-123",
+        transitionId: "11",
+      }),
+      (error) =>
+        error.name === "JiraBusinessError" &&
+        error.statusCode === status &&
+        error.isBusinessFailure === true &&
+        error.isRetryable !== true &&
+        error.message ===
+          `Jira rejected the transition request with an unexpected status (status ${status}): treat as non-retryable and inspect the response`
+    );
+  }
+});
+
+test("transitionIssue keeps 408 (Request Timeout) as a technical, retryable failure despite being an unmapped 4xx", async () => {
+  const { service } = loadService({
+    post: async () => {
+      const error = new Error("jira status 408");
+      error.response = {
+        status: 408,
+      };
+      throw error;
+    },
+  });
+
+  await assert.rejects(
+    service.transitionIssue({
+      issueKey: "ABC-123",
+      transitionId: "11",
+    }),
+    (error) =>
+      error.name === "JiraTechnicalError" &&
+      error.isRetryable === true &&
+      error.isBusinessFailure !== true
+  );
+});
+
 function buildCommentFixture({ id, text, created }) {
   return {
     id,
