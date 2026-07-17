@@ -1,6 +1,10 @@
 const dotenv = require("dotenv"); // Load environment variables from .env file
 
-dotenv.config(); // Initialize dotenv to read the .env file and set process.env variables
+// { quiet: true } suppresses dotenv's promotional "tips" console output.
+// Confirmed against the installed dotenv@17.4.2 API (lib/main.d.ts, README.md
+// "quiet" section): the option is real and does exactly this, it does not
+// affect variable loading/parsing behavior.
+dotenv.config({ quiet: true }); // Initialize dotenv to read the .env file and set process.env variables
 
 const VALID_NODE_ENVS = ["development", "test", "production"];
 
