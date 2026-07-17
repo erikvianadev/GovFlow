@@ -47,10 +47,20 @@ this sprint changes.
 | 429 | `JiraTechnicalError` (retry: automatic) | `Temporary Jira {operation} request failure` | Jira rate limit hit | No action needed for a single occurrence; if it recurs constantly, review call volume / `JIRA_RATE_LIMIT_WINDOW_MS` and `JIRA_RATE_LIMIT_MAX` |
 | 5xx | `JiraTechnicalError` (retry: automatic) | `Temporary Jira {operation} request failure` | Jira Cloud is having a server-side issue | No action needed; check Atlassian's status page if it persists across retries |
 | Network failure (`error.code` set, e.g. timeout/DNS, or no `error.response` at all) | `JiraTechnicalError` (retry: automatic) | `Temporary Jira {operation} request failure` | Network/DNS issue, connection timeout (`JIRA_TIMEOUT_MS`), Jira unreachable | No action for a transient blip; if persistent, check `JIRA_BASE_URL`, network egress, and `JIRA_TIMEOUT_MS` |
-| Any other Jira status not in the table above (e.g. 402, 405, 410, 422, …) | `JiraTechnicalError` (retry: automatic) | `Unexpected Jira {operation} request failure` | Not explicitly mapped by `normalizeJiraError` | **Note (verified in code, flagged as-is, not changed by this sprint):** this falls through to the same "unmapped" `JiraTechnicalError` branch as network failures, so it is treated as retryable even though a 4xx like this is unlikely to be transient — a retry will very likely just fail again with the same status until BullMQ's attempts are exhausted. Worth watching in logs; out of scope to change here. |
+| 408 | `JiraTechnicalError` (retry: automatic) | `Temporary Jira {operation} request failure` | Request Timeout — Jira (or the network path to it) did not respond in time | No action needed for a single occurrence; if it recurs constantly, check `JIRA_TIMEOUT_MS` and network latency. **Deliberate carve-out:** 408 is a 4xx status, but unlike the "any other 4xx" row below it is kept retryable on purpose — a request timeout is, by definition, a transient condition, so `normalizeJiraError` explicitly excludes it (via `JIRA_RETRYABLE_4XX_STATUSES`) from the unmapped-4xx-is-non-retryable rule. |
+| Any other 4xx Jira status not in the table above and not 408/429 (e.g. 402, 405, 410, 422, …) | `JiraBusinessError` (retry: manual), `statusCode` set to the real status | `Jira rejected the {operation} request with an unexpected status (status {status}): treat as non-retryable and inspect the response` | Not individually mapped by `normalizeJiraError`, but still a 4xx — Jira is rejecting the request as sent | Inspect `error.cause`/`responseData` in the server log for the specific reason Jira gave, and the workflow step's `configuration`; a 4xx is a rejection of the request itself, so a bare retry is very unlikely to succeed and this is treated as non-retryable, requiring manual follow-up |
 
-The exact matching logic lives in `JIRA_BUSINESS_ERROR_MESSAGE_BY_STATUS` and
-the fallback branch of `normalizeJiraError` in `jira.service.js`.
+**Note:** unmapped 4xx statuses used to fall through to the generic
+`JiraTechnicalError` ("unexpected failure") branch and were therefore
+retried automatically, even though a 4xx is a rejection of the request
+itself and a bare retry was very unlikely to ever succeed differently. This
+is no longer the case: any unmapped 4xx is now `JiraBusinessError`
+(non-retryable), with the sole deliberate exception of 408 (see row above),
+which stays retryable because it is definitionally transient.
+
+The exact matching logic lives in `JIRA_BUSINESS_ERROR_MESSAGE_BY_STATUS`,
+`JIRA_RETRYABLE_4XX_STATUSES`, and the fallback branches of
+`normalizeJiraError` in `jira.service.js`.
 
 ## Preconditions checked before any Jira call (`assertJiraIntegrationReady`)
 

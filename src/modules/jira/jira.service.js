@@ -203,6 +203,15 @@ const JIRA_BUSINESS_ERROR_MESSAGE_BY_STATUS = {
     `Jira rejected the ${operation} request: resource not found (status 404)`,
 };
 
+// 4xx statuses that stay retryable (JiraTechnicalError) even though they are
+// not in JIRA_BUSINESS_ERROR_MESSAGE_BY_STATUS above. 429 (rate limit) is the
+// obvious one. 408 (Request Timeout) is a deliberate carve-out: it is a 4xx,
+// so without this explicit exclusion it would fall into the "unmapped 4xx =>
+// JiraBusinessError" branch below, but 408 describes a transient condition by
+// definition, so it must stay retryable. Do not remove this without an
+// explicit decision to change that behavior.
+const JIRA_RETRYABLE_4XX_STATUSES = new Set([408, 429]);
+
 function normalizeJiraError(error, operation) {
   const status = error.response?.status;
 
@@ -212,10 +221,26 @@ function normalizeJiraError(error, operation) {
     return new JiraBusinessError(buildMessage(operation), status);
   }
 
-  if (status === 429 || status >= 500 || error.code || !error.response) {
+  if (
+    JIRA_RETRYABLE_4XX_STATUSES.has(status) ||
+    status >= 500 ||
+    error.code ||
+    !error.response
+  ) {
     return new JiraTechnicalError(
       `Temporary Jira ${operation} request failure`,
       error
+    );
+  }
+
+  // Any other 4xx status Jira returns that is not individually mapped above
+  // and is not one of the explicit retryable carve-outs (408/429) is treated
+  // as non-retryable: a 4xx is Jira rejecting the request as-is, and a bare
+  // retry is very unlikely to succeed without the request itself changing.
+  if (status >= 400 && status < 500) {
+    return new JiraBusinessError(
+      `Jira rejected the ${operation} request with an unexpected status (status ${status}): treat as non-retryable and inspect the response`,
+      status
     );
   }
 
