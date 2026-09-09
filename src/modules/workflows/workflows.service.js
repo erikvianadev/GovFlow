@@ -181,6 +181,14 @@ async function createWorkflow({
       throw new AppError("Department not found", 404);
     }
 
+    if (error.code === "23505" &&
+      error.constraint === "workflows_department_id_name_key") {
+      throw new AppError(
+        "Workflow already exists in this department",
+        409
+        )
+      }
+
     throw error;
   }
 }
