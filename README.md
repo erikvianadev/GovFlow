@@ -7,6 +7,9 @@ integrations such as Jira.
 
 ## Current Status
 
+The backend is currently implemented in JavaScript.
+A full TypeScript migration is planned for Sprint 7 after the current architecture has stabilized.
+
 Sprint 6.8 - Workflow Templates & Reusability completed.
 
 GovFlow processes workflow executions asynchronously and integrates with the
