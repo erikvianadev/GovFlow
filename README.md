@@ -595,19 +595,12 @@ docker exec govflow_api npm test
 
 ## Next Steps
 
-Sprint 6.4.2 delivered step-level idempotency and local deduplication of Jira
-side effects; Sprint 6.4.3 added a read-only, best-effort remote marker lookup
-that lets stale-running recovery recover a `JIRA_COMMENT` step instead of
-recording a false `FAILED`. Sprints 6.5-6.8 followed with Jira integration
-polish, structured logging, the queue dashboard, and department-scoped
-workflow management with activate/deactivate and duplication.
-
 Planned next improvements:
 
-- Remote dedup at processing time and `JIRA_TRANSITION` verification (persist the
-  expected target status to tell "already applied" from a real failure; the
-  6.4.3 lookup is recovery-only and covers `JIRA_COMMENT` only)
+- Sprint 7: migrate the GovFlow codebase from JavaScript to TypeScript
+- Preserve current behavior and test coverage during the migration
+- Introduce stronger typing across services, repositories, handlers and workflow processing
+- Remote dedup at processing time and JIRA_TRANSITION verification
 - Observability of skips by audit reason and worker/queue metrics
 - Automatic scheduled recovery for stale RUNNING executions
 - External API timeout tuning and circuit-breaking
-- Optional removal of the temporary `/enqueue` alias
