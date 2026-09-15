@@ -601,7 +601,7 @@ docker exec govflow_api npm test
 Planned next improvements:
 
 - Sprint 7: migrate the GovFlow codebase from JavaScript to TypeScript
-- Preserve current behavior and test coverage during the migration
+- Preserve current behavior and test suite reliability throughout the migration
 - Introduce stronger typing across services, repositories, handlers and workflow processing
 - Remote dedup at processing time and JIRA_TRANSITION verification
 - Observability of skips by audit reason and worker/queue metrics
