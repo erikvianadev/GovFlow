@@ -1,5 +1,10 @@
-function validateExecutionId(executionId) {
-  const errors = [];
+type ValidationError = {
+  field: string,
+  message: string
+}
+
+function validateExecutionId(executionId: unknown): ValidationError[] {
+  const errors: ValidationError[] = [];
 
   validateRequiredUuid(
     executionId,
@@ -11,7 +16,7 @@ function validateExecutionId(executionId) {
   return errors;
 }
 
-function validateRequiredUuid(value, field, label, errors) {
+function validateRequiredUuid(value: unknown, field: string, label: string, errors: ValidationError[]): void {
   if (value === undefined || value === null) {
     errors.push({
       field,
@@ -36,7 +41,7 @@ function validateRequiredUuid(value, field, label, errors) {
   }
 }
 
-function isValidUuid(value) {
+function isValidUuid(value: string): boolean {
   if (value === "00000000-0000-0000-0000-000000000000") {
     return true;
   }
@@ -47,6 +52,6 @@ function isValidUuid(value) {
   return uuidRegex.test(value);
 }
 
-module.exports = {
+export = {
   validateExecutionId,
 };
