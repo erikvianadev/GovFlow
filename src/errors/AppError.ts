@@ -1,5 +1,8 @@
 class AppError extends Error {
-  constructor(message, statusCode = 400, errors = null) {
+  statusCode: number;
+  isOperational: boolean;
+  errors: unknown;
+  constructor(message: string, statusCode: number = 400, errors: unknown = null) {
     super(message);
 
     this.name = "AppError";
@@ -11,4 +14,4 @@ class AppError extends Error {
   }
 }
 
-module.exports = AppError;
+export = AppError;
