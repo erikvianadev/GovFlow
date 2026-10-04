@@ -1,5 +1,15 @@
-function validateLogin(payload) {
-  const errors = [];
+type ValidationError = {
+  field: string;
+  message: string;
+}
+
+type LoginPayload = {
+  email?: unknown;
+  password?: unknown;
+}
+
+function validateLogin(payload: LoginPayload): ValidationError[] {
+  const errors: ValidationError[] = [];
 
   validateEmail(payload.email, errors);
   validatePassword(payload.password, errors);
@@ -7,7 +17,7 @@ function validateLogin(payload) {
   return errors;
 }
 
-function validateEmail(email, errors) {
+function validateEmail(email: unknown, errors: ValidationError[]): void {
   if (email === undefined || email === null) {
     errors.push({
       field: "email",
@@ -44,7 +54,7 @@ function validateEmail(email, errors) {
   }
 }
 
-function validatePassword(password, errors) {
+function validatePassword(password: unknown, errors: ValidationError[]): void {
   if (password === undefined || password === null) {
     errors.push({
       field: "password",
@@ -69,6 +79,6 @@ function validatePassword(password, errors) {
   }
 }
 
-module.exports = {
+export = {
   validateLogin,
 };

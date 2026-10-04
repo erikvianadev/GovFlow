@@ -1,12 +1,25 @@
-const VALID_JOB_STATES = ["waiting", "active", "completed", "failed", "delayed"];
-const MAX_JOBS_LIMIT = 100;
-const DEFAULT_JOBS_LIMIT = 20;
-const DEFAULT_JOBS_PAGE = 1;
+type ValidJobState = typeof VALID_JOB_STATES[number]
 
-function validateListJobsFilters({ state, page, limit }) {
-  const errors = [];
+const VALID_JOB_STATES = ["waiting", "active", "completed", "failed", "delayed"] as const; 
+const MAX_JOBS_LIMIT: number = 100;
+const DEFAULT_JOBS_LIMIT: number = 20;
+const DEFAULT_JOBS_PAGE: number = 1;
 
-  if (state !== undefined && !VALID_JOB_STATES.includes(state)) {
+type ListJobsFilters = {
+  state?: unknown;
+  page?: unknown;
+  limit?: unknown;
+};
+
+type ValidationError = {
+  field: string;
+  message: string;
+}
+
+function validateListJobsFilters({ state, page, limit }: ListJobsFilters): ValidationError[] {
+  const errors: ValidationError[] = [];
+
+  if (state !== undefined && isValidJobState(state)) {
     errors.push({
       field: "state",
       message: `state must be one of: ${VALID_JOB_STATES.join(", ")}`,
@@ -32,8 +45,8 @@ function validateListJobsFilters({ state, page, limit }) {
   return errors;
 }
 
-function validateJobId(jobId) {
-  const errors = [];
+function validateJobId(jobId: unknown): ValidationError[] {
+  const errors: ValidationError[] = [];
 
   if (!jobId || typeof jobId !== "string" || jobId.trim() === "") {
     errors.push({ field: "jobId", message: "jobId is required" });
@@ -42,7 +55,15 @@ function validateJobId(jobId) {
   return errors;
 }
 
-module.exports = {
+function isValidJobState(value: unknown): value is ValidJobState {
+  if (typeof value !== 'string') {
+    return false
+  }
+
+  return (VALID_JOB_STATES as readonly string[]).includes(value)
+}
+
+export = {
   DEFAULT_JOBS_LIMIT,
   DEFAULT_JOBS_PAGE,
   MAX_JOBS_LIMIT,
