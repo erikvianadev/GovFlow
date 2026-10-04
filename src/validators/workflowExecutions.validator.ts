@@ -1,29 +1,55 @@
-function validateCreateWorkflowExecution(payload) {
-  const errors = [];
+type ValidationError = {
+  field: string;
+  message: string;
+};
+
+type CreateWorkflowExecutionPayload = {
+  input?: unknown;
+};
+
+type ListWorkflowExecutionsFilters = {
+  workflowId?: unknown;
+  startedBy?: unknown;
+  status?: unknown;
+};
+
+type RecoverStaleRunningPayload = {
+  timeoutMinutes?: unknown;
+  limit?: unknown;
+};
+
+type PositiveIntegerOptions = {
+  max?: number;
+};
+
+function validateCreateWorkflowExecution(payload: CreateWorkflowExecutionPayload): ValidationError[] {
+  const errors: ValidationError[] = [];
 
   validateInput(payload.input, errors);
 
   return errors;
 }
 
-function validateWorkflowId(workflowId) {
-  const errors = [];
+function validateWorkflowId(workflowId: unknown): ValidationError[] {
+  const errors: ValidationError[] = [];
 
   validateRequiredUuid(workflowId, "workflowId", "Workflow ID", errors);
 
   return errors;
 }
 
-function validateWorkflowExecutionId(id) {
-  const errors = [];
+function validateWorkflowExecutionId(id: unknown): ValidationError[] {
+  const errors: ValidationError[] = [];
 
   validateRequiredUuid(id, "id", "Workflow execution ID", errors);
 
   return errors;
 }
 
-function validateListWorkflowExecutionsFilters(filters) {
-  const errors = [];
+function validateListWorkflowExecutionsFilters(
+  filters: ListWorkflowExecutionsFilters
+): ValidationError[] {
+  const errors: ValidationError[] = [];
 
   validateOptionalUuid(filters.workflowId, "workflowId", "Workflow ID", errors);
   validateOptionalUuid(filters.startedBy, "startedBy", "Started by", errors);
@@ -34,8 +60,10 @@ function validateListWorkflowExecutionsFilters(filters) {
 
 const MAX_RECOVERY_LIMIT = 100;
 
-function validateRecoverStaleRunning({ timeoutMinutes, limit } = {}) {
-  const errors = [];
+function validateRecoverStaleRunning(
+  { timeoutMinutes, limit }: RecoverStaleRunningPayload = {}
+): ValidationError[] {
+  const errors: ValidationError[] = [];
 
   validateOptionalPositiveInteger(
     timeoutMinutes,
@@ -51,12 +79,12 @@ function validateRecoverStaleRunning({ timeoutMinutes, limit } = {}) {
 }
 
 function validateOptionalPositiveInteger(
-  value,
-  field,
-  label,
-  errors,
-  { max } = {}
-) {
+  value: unknown,
+  field: string,
+  label: string,
+  errors: ValidationError[],
+  { max }: PositiveIntegerOptions = {}
+): void {
   if (value === undefined || value === null || value === "") {
     return;
   }
@@ -77,7 +105,7 @@ function validateOptionalPositiveInteger(
   }
 }
 
-function validateInput(input, errors) {
+function validateInput(input: unknown, errors: ValidationError[]): void {
   if (input === undefined || input === null) {
     return;
   }
@@ -90,14 +118,20 @@ function validateInput(input, errors) {
   }
 }
 
-function validateOptionalStatus(status, errors) {
+const VALID_STATUSES = ["PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELED"] as const;
+
+type ValidStatusesString = typeof VALID_STATUSES[number]
+
+function isValidStatusString(value: unknown): value is ValidStatusesString {
+  return typeof value === 'string' && 
+  (VALID_STATUSES as readonly string[]).includes(value)
+}
+
+function validateOptionalStatus(status: unknown, errors: ValidationError[]): void {
   if (status === undefined || status === null || status === "") {
     return;
   }
-
-  const validStatuses = ["PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELED"];
-
-  if (!validStatuses.includes(status)) {
+  if (!isValidStatusString(status)) {
     errors.push({
       field: "status",
       message: "Status must be one of: PENDING, RUNNING, COMPLETED, FAILED, CANCELED",
@@ -105,7 +139,7 @@ function validateOptionalStatus(status, errors) {
   }
 }
 
-function validateRequiredUuid(value, field, label, errors) {
+function validateRequiredUuid(value: unknown, field: string, label: string, errors: ValidationError[]): void {
   if (value === undefined || value === null) {
     errors.push({
       field,
@@ -130,7 +164,7 @@ function validateRequiredUuid(value, field, label, errors) {
   }
 }
 
-function validateOptionalUuid(value, field, label, errors) {
+function validateOptionalUuid(value: unknown, field: string, label: string, errors: ValidationError[]): void {
   if (value === undefined || value === null || value === "") {
     return;
   }
@@ -151,7 +185,7 @@ function validateOptionalUuid(value, field, label, errors) {
   }
 }
 
-function isValidUuid(value) {
+function isValidUuid(value: unknown): boolean {
   if (value === "00000000-0000-0000-0000-000000000000") {
     return true;
   }
@@ -159,10 +193,10 @@ function isValidUuid(value) {
   const uuidRegex =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-  return uuidRegex.test(value);
+  return typeof value === 'string' && uuidRegex.test(value);
 }
 
-module.exports = {
+export = {
   validateCreateWorkflowExecution,
   validateWorkflowId,
   validateWorkflowExecutionId,

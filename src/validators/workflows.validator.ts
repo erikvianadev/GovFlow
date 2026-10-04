@@ -1,32 +1,74 @@
-function validateCreateWorkflow(payload) {
-  const errors = [];
+type ValidationError = {
+  field: string;
+  message: string;
+};
+
+type CreateWorkflowPayload = {
+  name?: unknown;
+  description?: unknown;
+  departmentId?: unknown;
+};
+
+type UpdateWorkflowPayload = {
+  isActive?: unknown;
+};
+
+type ListWorkflowsFilters = {
+  departmentId?: unknown;
+  createdBy?: unknown;
+  isActive?: unknown;
+};
+
+const VALID_BOOLEAN_STRINGS = ["true", "false"] as const;
+
+type BooleanString = typeof VALID_BOOLEAN_STRINGS[number];
+
+function validateCreateWorkflow(
+  payload: CreateWorkflowPayload 
+): ValidationError[] {
+  const errors: ValidationError[] = [];
 
   validateName(payload.name, errors);
   validateDescription(payload.description, errors);
-  validateOptionalUuid(payload.departmentId, "departmentId", "Department ID", errors);
+  validateOptionalUuid(
+    payload.departmentId, 
+    "departmentId", 
+    "Department ID", 
+    errors
+  );
 
   return errors;
 }
 
-function validateListWorkflowsFilters(filters) {
-  const errors = [];
+function validateListWorkflowsFilters(
+    filters: ListWorkflowsFilters
+): ValidationError[] {
+  const errors: ValidationError[] = [];
 
-  validateOptionalUuid(filters.departmentId, "departmentId", "Department ID", errors);
+  validateOptionalUuid(
+    filters.departmentId, 
+    "departmentId", 
+    "Department ID", 
+    errors
+  );
+
   validateOptionalUuid(filters.createdBy, "createdBy", "Created by", errors);
   validateOptionalBooleanString(filters.isActive, "isActive", errors);
 
   return errors;
 }
 
-function validateUpdateWorkflow(payload) {
-  const errors = [];
+function validateUpdateWorkflow(
+    payload: UpdateWorkflowPayload
+): ValidationError[] {
+  const errors: ValidationError[] = [];
 
   validateIsActive(payload.isActive, errors);
 
   return errors;
 }
 
-function validateWorkflowId(id) {
+function validateWorkflowId(id: unknown): ValidationError[] {
   if (isValidUuid(id)) {
     return [];
   }
@@ -39,7 +81,7 @@ function validateWorkflowId(id) {
   ];
 }
 
-function validateName(name, errors) {
+function validateName(name: unknown, errors: ValidationError[]): void {
   if (name === undefined || name === null) {
     errors.push({
       field: "name",
@@ -72,7 +114,10 @@ function validateName(name, errors) {
   }
 }
 
-function validateDescription(description, errors) {
+function validateDescription(
+    description: unknown,  
+    errors: ValidationError[]
+): void {
   if (description === undefined || description === null) {
     return;
   }
@@ -93,7 +138,10 @@ function validateDescription(description, errors) {
   }
 }
 
-function validateIsActive(isActive, errors) {
+function validateIsActive(
+    isActive: unknown, 
+    errors: ValidationError[]
+): void {
   if (isActive === undefined || isActive === null) {
     errors.push({
       field: "is_active",
@@ -110,12 +158,22 @@ function validateIsActive(isActive, errors) {
   }
 }
 
-function validateOptionalBooleanString(value, field, errors) {
+function isValidBooleanString(value: unknown): value is BooleanString {
+  return typeof value === 'string' && (
+    VALID_BOOLEAN_STRINGS as readonly string[]
+  ).includes(value)
+}
+
+function validateOptionalBooleanString(
+    value: unknown, 
+    field: string, 
+    errors: ValidationError[]
+): void {
   if (value === undefined || value === null || value === "") {
     return;
   }
 
-  if (!["true", "false"].includes(value)) {
+  if (!isValidBooleanString(value)) {
     errors.push({
       field,
       message: `${field} must be either true or false`,
@@ -123,7 +181,12 @@ function validateOptionalBooleanString(value, field, errors) {
   }
 }
 
-function validateOptionalUuid(value, field, label, errors) {
+function validateOptionalUuid(
+    value: unknown, 
+    field: string, 
+    label: string, 
+    errors: ValidationError[]
+): void {
   if (value === undefined || value === null || value === "") {
     return;
   }
@@ -144,14 +207,14 @@ function validateOptionalUuid(value, field, label, errors) {
   }
 }
 
-function isValidUuid(value) {
+function isValidUuid(value: unknown): boolean {
   const uuidRegex =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-  return uuidRegex.test(value);
+  return (typeof value === 'string' && uuidRegex.test(value));
 }
 
-module.exports = {
+export = {
   validateCreateWorkflow,
   validateUpdateWorkflow,
   validateListWorkflowsFilters,
