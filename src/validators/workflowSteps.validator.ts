@@ -1,9 +1,25 @@
+type ValidationError = {
+  field: string;
+  message: string;
+};
+
+type CreateWorkflowStepPayload = {
+  name?: unknown;
+  description?: unknown;
+  stepOrder?: unknown;
+  actionType?: unknown;
+  configuration?: unknown;
+};
+
 const VALID_ACTION_TYPES = [
   "MANUAL",
   "JIRA_TRANSITION",
   "JIRA_COMMENT",
   "NOTIFICATION",
-];
+] as const;
+
+type WorkflowActionType = typeof VALID_ACTION_TYPES[number]
+
 const JIRA_COMMENT_MAX_LENGTH = 5000;
 const JIRA_ISSUE_KEY_MAX_LENGTH = 100;
 const JIRA_TRANSITION_ID_MAX_LENGTH = 50;
@@ -12,8 +28,8 @@ const JIRA_TRANSITION_ID_MAX_LENGTH = 50;
 // letter, followed by a hyphen and the issue number (e.g. ABC-123, DO-32).
 const JIRA_ISSUE_KEY_REGEX = /^[A-Z][A-Z0-9]+-\d+$/;
 
-function validateCreateWorkflowStep(payload) {
-  const errors = [];
+function validateCreateWorkflowStep(payload: CreateWorkflowStepPayload): ValidationError[]  {
+  const errors: ValidationError[] = [];
 
   validateName(payload.name, errors);
   validateDescription(payload.description, errors);
@@ -25,31 +41,31 @@ function validateCreateWorkflowStep(payload) {
   return errors;
 }
 
-function validateJiraCommentConfiguration(configuration) {
-  const errors = [];
+function validateJiraCommentConfiguration(configuration: unknown): ValidationError[] {
+  const errors: ValidationError[] = [];
 
   validateJiraCommentFields(configuration, errors);
 
   return errors;
 }
 
-function validateJiraTransitionConfiguration(configuration) {
-  const errors = [];
+function validateJiraTransitionConfiguration(configuration: unknown): ValidationError[] {
+  const errors: ValidationError[] = [];
 
   validateJiraTransitionFields(configuration, errors);
 
   return errors;
 }
 
-function validateWorkflowId(workflowId) {
-  const errors = [];
+function validateWorkflowId(workflowId: unknown): ValidationError[] {
+  const errors: ValidationError[] = [];
 
   validateRequiredUuid(workflowId, "workflowId", "Workflow ID", errors);
 
   return errors;
 }
 
-function validateName(name, errors) {
+function validateName(name: unknown, errors: ValidationError[]): void {
   if (name === undefined || name === null) {
     errors.push({
       field: "name",
@@ -82,7 +98,7 @@ function validateName(name, errors) {
   }
 }
 
-function validateDescription(description, errors) {
+function validateDescription(description: unknown, errors: ValidationError[]): void {
   if (description === undefined || description === null) {
     return;
   }
@@ -103,7 +119,7 @@ function validateDescription(description, errors) {
   }
 }
 
-function validateStepOrder(stepOrder, errors) {
+function validateStepOrder(stepOrder: unknown, errors: ValidationError[]): void {
   if (stepOrder === undefined || stepOrder === null) {
     errors.push({
       field: "stepOrder",
@@ -112,7 +128,7 @@ function validateStepOrder(stepOrder, errors) {
     return;
   }
 
-  if (!Number.isInteger(stepOrder)) {
+  if (typeof stepOrder !== "number" || !Number.isInteger(stepOrder)) {
     errors.push({
       field: "stepOrder",
       message: "Step order must be an integer",
@@ -128,7 +144,12 @@ function validateStepOrder(stepOrder, errors) {
   }
 }
 
-function validateActionType(actionType, errors) {
+function isValidActionType(value: unknown): value is WorkflowActionType {
+  return typeof value === "string" && 
+  (VALID_ACTION_TYPES as readonly string[]).includes(value);
+}
+
+function validateActionType(actionType: unknown, errors: ValidationError[]): void {
   if (actionType === undefined || actionType === null) {
     errors.push({
       field: "actionType",
@@ -145,7 +166,7 @@ function validateActionType(actionType, errors) {
     return;
   }
 
-  if (!VALID_ACTION_TYPES.includes(actionType)) {
+  if (!isValidActionType(actionType)) {
     errors.push({
       field: "actionType",
       message:
@@ -154,7 +175,7 @@ function validateActionType(actionType, errors) {
   }
 }
 
-function validateConfiguration(configuration, errors) {
+function validateConfiguration(configuration: unknown, errors: ValidationError[]): void {
   if (configuration === undefined || configuration === null) {
     return;
   }
@@ -167,7 +188,7 @@ function validateConfiguration(configuration, errors) {
   }
 }
 
-function validateActionConfiguration(actionType, configuration, errors) {
+function validateActionConfiguration(actionType: unknown, configuration: unknown, errors: ValidationError[]): void {
   if (actionType === "JIRA_COMMENT") {
     validateJiraCommentFields(configuration, errors);
   }
@@ -177,7 +198,11 @@ function validateActionConfiguration(actionType, configuration, errors) {
   }
 }
 
-function validateJiraCommentFields(configuration, errors) {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function validateJiraCommentFields(configuration: unknown, errors: ValidationError[]): void {
   if (configuration === undefined || configuration === null) {
     errors.push({
       field: "configuration",
@@ -186,7 +211,7 @@ function validateJiraCommentFields(configuration, errors) {
     return;
   }
 
-  if (typeof configuration !== "object" || Array.isArray(configuration)) {
+  if (!isRecord(configuration)) {
     return;
   }
 
@@ -210,7 +235,7 @@ function validateJiraCommentFields(configuration, errors) {
   }
 }
 
-function validateJiraTransitionFields(configuration, errors) {
+function validateJiraTransitionFields(configuration: unknown, errors: ValidationError[]): void {
   if (configuration === undefined || configuration === null) {
     errors.push({
       field: "configuration",
@@ -219,7 +244,7 @@ function validateJiraTransitionFields(configuration, errors) {
     return;
   }
 
-  if (typeof configuration !== "object" || Array.isArray(configuration)) {
+  if (!isRecord(configuration)) {
     return;
   }
 
@@ -254,7 +279,7 @@ function validateJiraTransitionFields(configuration, errors) {
   }
 }
 
-function validateJiraIssueKey(value, errors) {
+function validateJiraIssueKey(value: unknown, errors: ValidationError[]): void {
   const field = "configuration.issueKey";
 
   if (value === undefined || value === null) {
@@ -299,7 +324,7 @@ function validateJiraIssueKey(value, errors) {
   }
 }
 
-function validateRequiredNonEmptyString(value, field, label, errors) {
+function validateRequiredNonEmptyString(value: unknown, field: string, label: string, errors: ValidationError[]): void {
   if (value === undefined || value === null) {
     errors.push({
       field,
@@ -324,7 +349,7 @@ function validateRequiredNonEmptyString(value, field, label, errors) {
   }
 }
 
-function validateRequiredUuid(value, field, label, errors) {
+function validateRequiredUuid(value: unknown, field: string, label: string, errors: ValidationError[]): void {
   if (value === undefined || value === null) {
     errors.push({
       field,
@@ -349,14 +374,14 @@ function validateRequiredUuid(value, field, label, errors) {
   }
 }
 
-function isValidUuid(value) {
+function isValidUuid(value: unknown): boolean {
   const uuidRegex =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-  return uuidRegex.test(value);
+  return typeof value === "string" && uuidRegex.test(value);
 }
 
-module.exports = {
+export = {
   validateCreateWorkflowStep,
   validateJiraCommentConfiguration,
   validateJiraTransitionConfiguration,

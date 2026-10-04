@@ -1,3 +1,31 @@
+type ListAuditLogsFiltersPayload = {
+  action?: unknown;
+  entity?: unknown;
+  startDate?: unknown;
+  endDate?: unknown
+}
+
+type CreateManualAuditLogPayload = {
+  action?: unknown;
+  entity?: unknown;
+  entityId?: unknown;
+  actorId?: unknown;
+  metadata?: unknown
+}
+
+type CreateAuditLogPayload = {
+  action?: unknown;
+  entity?: unknown;
+  entityId?: unknown;
+  actorId?: unknown;
+  metadata?: unknown
+}
+
+type ValidationError = {
+  field: string;
+  message: string;
+}
+
 // Controlled allowlist of actions that may be created through the manual
 // POST /audit-logs endpoint. Manual entries cannot impersonate system events
 // (e.g. LOGIN_SUCCESS, USER_CREATED); they use this dedicated namespace.
@@ -6,10 +34,12 @@ const MANUAL_AUDIT_LOG_ACTIONS = [
   "MANUAL_REVIEW",
   "MANUAL_CORRECTION",
   "MANUAL_OVERRIDE",
-];
+] as const;
 
-function validateCreateAuditLog(payload) {
-  const errors = [];
+type ManualAuditLogAction = typeof MANUAL_AUDIT_LOG_ACTIONS[number]
+
+function validateCreateAuditLog(payload: CreateAuditLogPayload): ValidationError[] {
+  const errors: ValidationError[] = [];
 
   validateAction(payload.action, errors);
   validateEntity(payload.entity, errors);
@@ -20,8 +50,8 @@ function validateCreateAuditLog(payload) {
   return errors;
 }
 
-function validateCreateManualAuditLog(payload) {
-  const errors = [];
+function validateCreateManualAuditLog(payload: CreateManualAuditLogPayload): ValidationError[] {
+  const errors: ValidationError[] = [];
 
   validateManualAction(payload.action, errors);
   validateEntity(payload.entity, errors);
@@ -32,8 +62,8 @@ function validateCreateManualAuditLog(payload) {
   return errors;
 }
 
-function validateListAuditLogsFilters(filters) {
-  const errors = [];
+function validateListAuditLogsFilters(filters: ListAuditLogsFiltersPayload): ValidationError[] {
+  const errors: ValidationError[] = [];
 
   validateOptionalString(filters.action, "action", "Action", errors, 100);
   validateOptionalString(filters.entity, "entity", "Entity", errors, 100);
@@ -44,7 +74,7 @@ function validateListAuditLogsFilters(filters) {
   return errors;
 }
 
-function validateAction(action, errors) {
+function validateAction(action: unknown, errors: ValidationError[]): void {
   if (action === undefined || action === null) {
     errors.push({
       field: "action",
@@ -77,7 +107,7 @@ function validateAction(action, errors) {
   }
 }
 
-function validateEntity(entity, errors) {
+function validateEntity(entity: unknown, errors: ValidationError[]): void {
   if (entity === undefined || entity === null) {
     errors.push({
       field: "entity",
@@ -110,7 +140,7 @@ function validateEntity(entity, errors) {
   }
 }
 
-function validateEntityId(entityId, errors) {
+function validateEntityId(entityId: unknown, errors: ValidationError[]): void {
   if (entityId === undefined || entityId === null) {
     return;
   }
@@ -131,7 +161,7 @@ function validateEntityId(entityId, errors) {
   }
 }
 
-function validateActorId(actorId, errors) {
+function validateActorId(actorId: unknown, errors: ValidationError[]): void {
   if (actorId === undefined || actorId === null) {
     return;
   }
@@ -144,7 +174,12 @@ function validateActorId(actorId, errors) {
   }
 }
 
-function validateManualAction(action, errors) {
+function isValidAuditLogActions(value: unknown): value is ManualAuditLogAction {
+  return typeof value === 'string' && 
+  (MANUAL_AUDIT_LOG_ACTIONS as readonly string[]).includes(value) 
+}
+
+function validateManualAction(action: unknown, errors: ValidationError[]): void {
   if (action === undefined || action === null) {
     errors.push({
       field: "action",
@@ -161,7 +196,7 @@ function validateManualAction(action, errors) {
     return;
   }
 
-  if (!MANUAL_AUDIT_LOG_ACTIONS.includes(action)) {
+  if (!isValidAuditLogActions(action)) {
     errors.push({
       field: "action",
       message: `Action must be one of: ${MANUAL_AUDIT_LOG_ACTIONS.join(", ")}`,
@@ -169,7 +204,7 @@ function validateManualAction(action, errors) {
   }
 }
 
-function validateRequiredActorId(actorId, errors) {
+function validateRequiredActorId(actorId: unknown, errors: ValidationError[]): void {
   if (actorId === undefined || actorId === null) {
     errors.push({
       field: "actorId",
@@ -186,14 +221,14 @@ function validateRequiredActorId(actorId, errors) {
   }
 }
 
-function isValidUuid(value) {
+function isValidUuid(value: unknown): boolean {
   const uuidRegex =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-  return uuidRegex.test(value);
+  return typeof value === 'string' && uuidRegex.test(value);
 }
 
-function validateMetadata(metadata, errors) {
+function validateMetadata(metadata: unknown, errors: ValidationError[]): void {
   if (metadata === undefined || metadata === null) {
     return;
   }
@@ -206,7 +241,13 @@ function validateMetadata(metadata, errors) {
   }
 }
 
-function validateOptionalString(value, field, label, errors, maxLength) {
+function validateOptionalString(
+  value: unknown, 
+  field: string, 
+  label: string, 
+  errors: ValidationError[], 
+  maxLength: number
+): void {
   if (value === undefined || value === null || value === "") {
     return;
   }
@@ -235,12 +276,17 @@ function validateOptionalString(value, field, label, errors, maxLength) {
   }
 }
 
-function validateOptionalDate(value, field, label, errors) {
+function validateOptionalDate(
+  value: unknown, 
+  field: string, 
+  label: string, 
+  errors: ValidationError[]
+): void {
   if (value === undefined || value === null || value === "") {
     return;
   }
 
-  const date = new Date(value);
+  const date = new Date(value as string);
 
   if (Number.isNaN(date.getTime())) {
     errors.push({
@@ -250,13 +296,17 @@ function validateOptionalDate(value, field, label, errors) {
   }
 }
 
-function validateDateRange(startDate, endDate, errors) {
+function validateDateRange(
+  startDate: unknown, 
+  endDate: unknown, 
+  errors: ValidationError[]
+): void {
   if (!startDate || !endDate) {
     return;
   }
 
-  const parsedStartDate = new Date(startDate);
-  const parsedEndDate = new Date(endDate);
+  const parsedStartDate = new Date(startDate as string);
+  const parsedEndDate = new Date(endDate as string);
 
   if (
     Number.isNaN(parsedStartDate.getTime()) ||
@@ -273,7 +323,7 @@ function validateDateRange(startDate, endDate, errors) {
   }
 }
 
-module.exports = {
+export = {
   validateCreateAuditLog,
   validateCreateManualAuditLog,
   validateListAuditLogsFilters,
