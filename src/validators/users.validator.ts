@@ -1,7 +1,33 @@
-const VALID_ROLES = ["ADMIN", "MANAGER", "OPERATOR"];
+type ValidationError = {
+  field: string;
+  message: string;
+};
 
-function validateCreateUser(payload) {
-  const errors = [];
+type CreateUserPayload = {
+  name?: unknown;
+  email?: unknown;
+  password?: unknown;
+  role?: unknown;
+  departmentId?: unknown;
+};
+
+type ListUsersFilters = {
+  role?: unknown;
+  departmentId?: unknown;
+  isActive?: unknown;
+};
+
+const VALID_ROLES = ["ADMIN", "MANAGER", "OPERATOR"] as const;
+
+type UserRole = (typeof VALID_ROLES)[number];
+
+function isUserRole(value: unknown): value is UserRole {
+  return typeof value === "string" &&
+    (VALID_ROLES as readonly string[]).includes(value);
+}
+
+function validateCreateUser(payload: CreateUserPayload): ValidationError[] {
+  const errors: ValidationError[] = [];
 
   validateName(payload.name, errors);
   validateEmail(payload.email, errors);
@@ -12,8 +38,8 @@ function validateCreateUser(payload) {
   return errors;
 }
 
-function validateListUsersFilters(filters) {
-  const errors = [];
+function validateListUsersFilters(filters: ListUsersFilters): ValidationError[] {
+  const errors: ValidationError[] = [];
 
   validateOptionalRole(filters.role, errors);
   validateOptionalUuid(filters.departmentId, "departmentId", "Department ID", errors);
@@ -22,7 +48,7 @@ function validateListUsersFilters(filters) {
   return errors;
 }
 
-function validateUserId(id) {
+function validateUserId(id: unknown): ValidationError[] {
   if (isValidUuid(id)) {
     return [];
   }
@@ -35,7 +61,7 @@ function validateUserId(id) {
   ];
 }
 
-function validateName(name, errors) {
+function validateName(name: unknown, errors: ValidationError[]): void {
   if (name === undefined || name === null) {
     errors.push({
       field: "name",
@@ -68,7 +94,7 @@ function validateName(name, errors) {
   }
 }
 
-function validateEmail(email, errors) {
+function validateEmail(email: unknown, errors: ValidationError[]): void {
   if (email === undefined || email === null) {
     errors.push({
       field: "email",
@@ -118,7 +144,7 @@ function validateEmail(email, errors) {
 // multibyte input cannot slip past the effective bcrypt limit).
 const MAX_PASSWORD_BYTES = 72;
 
-function validatePassword(password, errors) {
+function validatePassword(password: unknown, errors: ValidationError[]): void {
   if (password === undefined || password === null) {
     errors.push({
       field: "password",
@@ -165,7 +191,7 @@ function validatePassword(password, errors) {
   }
 }
 
-function validateRole(role, errors) {
+function validateRole(role: unknown, errors: ValidationError[]): void {
   if (role === undefined || role === null) {
     errors.push({
       field: "role",
@@ -182,7 +208,7 @@ function validateRole(role, errors) {
     return;
   }
 
-  if (!VALID_ROLES.includes(role)) {
+  if (!isUserRole(role)) {
     errors.push({
       field: "role",
       message: "Role must be one of: ADMIN, MANAGER, OPERATOR",
@@ -190,7 +216,7 @@ function validateRole(role, errors) {
   }
 }
 
-function validateOptionalRole(role, errors) {
+function validateOptionalRole(role: unknown, errors: ValidationError[]): void {
   if (role === undefined || role === null || role === "") {
     return;
   }
@@ -198,12 +224,12 @@ function validateOptionalRole(role, errors) {
   validateRole(role, errors);
 }
 
-function validateOptionalBooleanString(value, field, errors) {
+function validateOptionalBooleanString(value: unknown, field: string, errors: ValidationError[]): void {
   if (value === undefined || value === null || value === "") {
     return;
   }
 
-  if (!["true", "false"].includes(value)) {
+  if (!(typeof value === "string" && ["true", "false"].includes(value))) {
     errors.push({
       field,
       message: `${field} must be either true or false`,
@@ -211,7 +237,7 @@ function validateOptionalBooleanString(value, field, errors) {
   }
 }
 
-function validateOptionalUuid(value, field, label, errors) {
+function validateOptionalUuid(value: unknown, field: string, label: string, errors: ValidationError[]): void {
   if (value === undefined || value === null || value === "") {
     return;
   }
@@ -232,14 +258,16 @@ function validateOptionalUuid(value, field, label, errors) {
   }
 }
 
-function isValidUuid(value) {
+function isValidUuid(value: unknown): boolean {
   const uuidRegex =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-  return uuidRegex.test(value);
+  // The assertion is erased at runtime, preserving RegExp.test's original
+  // coercion of non-string inputs (including its exceptions).
+  return uuidRegex.test(value as string);
 }
 
-module.exports = {
+export = {
   validateCreateUser,
   validateListUsersFilters,
   validateUserId,
