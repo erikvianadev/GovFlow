@@ -1,85 +1,89 @@
-# GovFlow Backend
+# GovFlow
 
-GovFlow is a backend API for administrative workflow automation. It is being
-built incrementally with a focus on maintainable domain modeling, PostgreSQL
-foundations, auditability, authentication, authorization, and future automation
-integrations such as Jira.
+**An asynchronous workflow automation backend built with Node.js, PostgreSQL, Redis, and BullMQ.**
 
-## Current Status
+GovFlow is a backend portfolio project for defining, executing, and monitoring administrative workflows. It combines an Express REST API, a dedicated background worker, and an optional Jira Cloud integration to explore reliable processing across databases, queues, and external services.
 
-The backend is currently implemented in JavaScript.
-A full TypeScript migration is planned for Sprint 7 after the current architecture has stabilized.
+## The Problem
 
-Sprint 6.8 - Workflow Templates & Reusability completed.
+A workflow can span several steps, depend on an external API, and outlive a single HTTP request. Retrying a failed job can repeat side effects; a worker crash can leave executions stuck in an intermediate state; and different users should not have unrestricted access to every workflow.
 
-GovFlow processes workflow executions asynchronously and integrates with the
-real Jira Cloud REST API for `JIRA_COMMENT` and `JIRA_TRANSITION` steps. Recent
-sprints added security hardening (6.4.1), step-level idempotency to avoid
-duplicate external Jira side effects under retries and concurrency (6.4.2), a
-best-effort remote check during stale-running recovery (6.4.3) that asks Jira
-whether a `JIRA_COMMENT` was already created before recording a false `FAILED`,
-structured logging with secret redaction and request/execution correlation
-(6.6), an ADMIN-only queue dashboard for operational visibility into
-BullMQ job state, with guarded retry and delete (6.7), Jira integration polish
-with boot-time configuration validation and per-status business error
-messages (6.5), and department-scoped workflow management with
-activate/deactivate and duplication (6.8).
+GovFlow addresses these concerns through asynchronous execution, persistent step-level state, access controls, auditing, and explicit recovery mechanisms.
 
-The current backend includes:
+## What It Does
 
-- Express API structure
-- PostgreSQL database
-- Redis infrastructure
-- BullMQ workflow processing queue
-- Dedicated background worker
-- Dockerized API, worker, database, and Redis
-- Environment variables with required-variable validation
-- Database connection pool
-- Public health check endpoint with safe degraded reporting
-- Admin-only deep health check for dependency status
-- Global error handling (environment-aware responses)
-- Standardized API responses
-- Structured logging (pino) with `req.id`/`executionId` correlation, an
-  `X-Request-Id` response header, and redaction of `Authorization`/`Cookie`
-  headers and the Jira Basic Auth credential
-- SQL migrations and seeds
-- Audit logs module
-- Departments module
-- Users module
-- Password hashing with bcrypt and password policy
-- Login endpoint (account-enumeration-safe) with per-IP rate limiting
-- JWT access token generation with hardened claims
-- Authentication middleware
-- Role-based authorization middleware
-- Object-level (department-scoped) authorization for workflows and executions
-- Protected routes
-- Helmet security headers, CORS allowlist, and trust-proxy-aware rate limiting
-- Workflows module
-- Workflow steps module
-- Workflow executions module
-- Workflow execution steps module
-- Real Jira integration (connection test, JIRA_COMMENT, JIRA_TRANSITION)
-- Transaction support for multi-step database operations
-- Asynchronous workflow processor (queued via BullMQ, run by the worker)
-- Atomic PENDING -> RUNNING claim at the execution and step level
-- Retryable step failures revert the step to PENDING (only the failed step retries)
-- Per-step external operation output (JSONB) with a deterministic idempotencyKey
-- Local deduplication of JIRA_COMMENT and JIRA_TRANSITION on retry
-- Guarded terminal transitions to prevent lost updates
-- Job status observability endpoint
-- Retry strategy with exponential backoff
-- Business failure vs technical failure handling
-- Stale RUNNING execution recovery (endpoint + script)
-- Remote-assisted Jira dedup on recovery (read-only, best-effort marker lookup
-  that recovers a JIRA_COMMENT step to COMPLETED instead of a false FAILED)
-- Workflow status lifecycle
-- Step-level execution tracking
-- Failure handling for workflow processing
-- ADMIN-only queue dashboard (stats, paginated job listing, guarded retry and
-  delete) for BullMQ operational visibility
-- Pagination and filters
-- Input validation
-- Automated tests
+| Area | Implemented capabilities |
+| --- | --- |
+| Workflow management | Department-scoped workflows, ordered steps, activation/deactivation, and template duplication |
+| Execution | Asynchronous processing through BullMQ, Redis, and a separate worker |
+| Jira Cloud | Real issue comments and transitions; simulated manual and notification actions |
+| Security | JWT authentication, role-based permissions, department-level authorization, password hashing, and request rate limiting |
+| Operations | Audit logs, structured logging, job-status tracking, an admin-only queue dashboard, and manual stale-execution recovery |
+
+## Architecture at a Glance
+
+```text
+Client
+  |
+  v
+Express REST API -----> PostgreSQL
+  |                     (users, workflows, executions,
+  |                      step state, audit logs)
+  v
+BullMQ / Redis
+  |
+  v
+Background Worker
+  |
+  v
+Workflow Processor --> Step Handler --> Jira Integration Service --> Jira Cloud
+```
+
+The application separates routes, controllers, services, repositories, and action handlers. The worker consumes jobs; it does not call Jira directly. See [architecture documentation](docs/architecture.md) for the domain model and request-processing details.
+
+## Engineering Highlights
+
+- **Concurrency and consistency:** PostgreSQL transactions, atomic step claims (`PENDING -> RUNNING`), and guarded terminal updates reduce duplicate processing and lost updates.
+- **Retries and failure handling:** technical failures use BullMQ retries with exponential backoff; business failures are treated as non-retryable.
+- **Idempotency safeguards:** persisted step output prevents known Jira operations from running again. Stale-execution recovery also performs a best-effort read-only Jira lookup for previously created comments. These measures do **not** guarantee exactly-once effects across Jira and PostgreSQL.
+- **Security:** JWT, role-based and department-scoped authorization, rate limiting, CORS restrictions, security headers, and secret redaction in logs.
+- **Observability:** correlated request/execution logs, audit events, job inspection, and restricted administrative queue controls.
+
+## Current Project Status
+
+- **Default branch (`main`):** JavaScript backend with Sprint 6.8 (workflow templates and reusability) completed.
+- **Sprint 7:** TypeScript migration is in progress on the separate [`sprint-7/typescript-migration` branch](../../tree/sprint-7/typescript-migration); it is not presented here as completed.
+- **Jira integration:** available for `JIRA_COMMENT` and `JIRA_TRANSITION` when configured. It is disabled by default.
+- **Scope:** an evolving portfolio project, not a claim of production deployment.
+
+## Quick Start (Local Development)
+
+1. Copy `.env.example` to `.env` and set the required database configuration and a private `JWT_SECRET`. Leave `JIRA_ENABLED=false` unless you have Jira Cloud credentials.
+2. Start the development containers and initialize the database:
+
+```bash
+docker compose up --build -d
+docker exec -it govflow_api npm run db:migrate
+docker exec -it govflow_api npm run db:seed
+```
+
+3. Check the API at `GET http://localhost:3000/health`. Refer to [API documentation](docs/api.md) for authentication, request bodies, and protected endpoints.
+4. Run the test suite with `docker exec govflow_api npm test`.
+
+**Note:** `docker-compose.yml` is for local development, not production deployment. See [Docker development notes](docs/docker-dev.md) and [production-oriented configuration](docs/docker-prod.md).
+
+## Documentation
+
+- [Architecture and workflow processing](docs/architecture.md)
+- [API contracts and examples](docs/api.md)
+- [Jira idempotency decisions and residual risks](docs/jira-idempotency.md)
+- [Jira error handling](docs/jira-errors.md)
+- [Local Docker workflow](docs/docker-dev.md)
+- [Production-oriented Docker setup](docs/docker-prod.md)
+
+The sections below retain the detailed technical reference, configuration, access rules, and operational commands.
+
+---
 
 ## Tech Stack
 
@@ -600,7 +604,7 @@ docker exec govflow_api npm test
 
 Planned next improvements:
 
-- Sprint 7: migrate the GovFlow codebase from JavaScript to TypeScript
+- Sprint 7 (in progress on a separate branch): migrate the GovFlow codebase from JavaScript to TypeScript
 - Preserve current behavior and test suite reliability throughout the migration
 - Introduce stronger typing across services, repositories, handlers and workflow processing
 - Remote dedup at processing time and JIRA_TRANSITION verification
